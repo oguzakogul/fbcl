@@ -130,14 +130,14 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 2. KALICI SES MOTORU (MUTE STATE KORUMALI)
+// 2. KALICI SES MOTORU (MANUEL KONTROLLÜ)
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
   private fb: HTMLAudioElement | null = null;
   public uclPlaying = false;
   public fbPlaying = false;
-  public isManuallyMuted = false;
+  public isManuallyMuted = true; // Varsayılan olarak kapalı, sadece kullanıcı basarsa açılır
 
   public init() {
     if (typeof window !== "undefined" && !this.ucl) {
@@ -565,7 +565,6 @@ export default function FBCLMasterpieceApp() {
     );
   }
 
-  // SIRALI, TEMİZ PENALTI MOTORU
   function runAutomatedPenaltyShootout(curM: BracketMatch, finalLegHome: number, finalLegAway: number) {
     setBracketMatchState("PENALTIES");
 
@@ -1066,13 +1065,10 @@ export default function FBCLMasterpieceApp() {
 
   const handleRollDice = () => {
     setIsRolling(true);
-    safeAudio.playFb(setFbAudioActive);
   };
 
   const handleStartDrawCeremony = () => {
     clearAllSimTimers();
-    safeAudio.playUcl(setUclAudioActive);
-    setFbAudioActive(false);
     setCurrentScreen("DRAW");
     runLiveDrawCeremony();
   };
@@ -1247,6 +1243,185 @@ export default function FBCLMasterpieceApp() {
     }, intervalMs);
   };
 
+  const proceedToNextFixture = () => {
+    setMatchState("IDLE");
+    setCurrentFixtureIndex((prev) => prev + 1);
+  };
+
+  const setupRealUclBracket = () => {
+    const sorted = [...swissTable].sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
+    const top8 = sorted.slice(0, 8);
+    const rest24 = sorted.slice(8, 32);
+
+    const isFbTop8 = top8.some((r) => r.id === "fb");
+
+    if (isFbTop8) {
+      const poTeams = rest24.slice(0, 16);
+      const poMatches: BracketMatch[] = [];
+      for (let i = 0; i < 8; i++) {
+        poMatches.push({
+          id: `po_${i + 1}`,
+          stage: "PLAYOFF",
+          stageTitle: "Play-Off Turu",
+          teamHome: { id: poTeams[15 - i].id, name: poTeams[15 - i].name, shortName: poTeams[15 - i].shortName, rating: poTeams[15 - i].rating, logoUrl: poTeams[15 - i].logoUrl, isUser: false },
+          teamAway: { id: poTeams[i].id, name: poTeams[i].name, shortName: poTeams[i].shortName, rating: poTeams[i].rating, logoUrl: poTeams[i].logoUrl, isUser: false },
+          leg1: { homeScore: 0, awayScore: 0, played: false },
+          leg2: { homeScore: 0, awayScore: 0, played: false },
+          isUserMatch: false,
+        });
+      }
+      setBracketMatches(poMatches);
+      setActiveBracketId("po_1");
+      setBracketLeg(1);
+      resetBracketLiveBoard();
+      setCurrentScreen("BRACKET");
+    } else {
+      const fbRank = sorted.findIndex((r) => r.id === "fb") + 1;
+      if (fbRank <= 24) {
+        const fbIndexInRest = rest24.findIndex((r) => r.id === "fb");
+        const pairedOpponent = rest24[15 - fbIndexInRest] || rest24[0];
+
+        const poMatches: BracketMatch[] = [];
+        let createdUserMatch = false;
+
+        for (let i = 0; i < 8; i++) {
+          const t1 = rest24[15 - i];
+          const t2 = rest24[i];
+          const isThisUser = t1.id === "fb" || t2.id === "fb";
+
+          if (isThisUser) {
+            createdUserMatch = true;
+          }
+
+          poMatches.push({
+            id: `po_${i + 1}`,
+            stage: "PLAYOFF",
+            stageTitle: "Play-Off Turu",
+            teamHome: { id: t1.id, name: t1.id === "fb" ? "Fenerbahçe SK" : t1.name, shortName: t1.shortName, rating: t1.rating, logoUrl: t1.logoUrl, isUser: t1.id === "fb" },
+            teamAway: { id: t2.id, name: t2.id === "fb" ? "Fenerbahçe SK" : t2.name, shortName: t2.shortName, rating: t2.rating, logoUrl: t2.logoUrl, isUser: t2.id === "fb" },
+            leg1: { homeScore: 0, awayScore: 0, played: false },
+            leg2: { homeScore: 0, awayScore: 0, played: false },
+            isUserMatch: isThisUser,
+          });
+        }
+
+        if (!createdUserMatch) {
+          poMatches[0] = {
+            id: "po_1",
+            stage: "PLAYOFF",
+            stageTitle: "Play-Off Turu",
+            teamHome: { id: pairedOpponent.id, name: pairedOpponent.name, shortName: pairedOpponent.shortName, rating: pairedOpponent.rating, logoUrl: pairedOpponent.logoUrl, isUser: false },
+            teamAway: { id: "fb", name: "Fenerbahçe SK", shortName: "FB", rating: rawTeamOvr, logoUrl: "https://crests.football-data.org/613.png", isUser: true },
+            leg1: { homeScore: 0, awayScore: 0, played: false },
+            leg2: { homeScore: 0, awayScore: 0, played: false },
+            isUserMatch: true,
+          };
+        }
+
+        setBracketMatches(poMatches);
+        const userM = poMatches.find((m) => m.isUserMatch);
+        setActiveBracketId(userM?.id || "po_1");
+        setBracketLeg(1);
+        resetBracketLiveBoard();
+        setCurrentScreen("BRACKET");
+      }
+    }
+  };
+
+  const playLiveBracketLeg = () => {
+    if (bracketMatchState === "PLAYING" || bracketMatchState === "PENALTIES") return;
+    clearAllSimTimers();
+
+    const curM = bracketMatches.find((m) => m.id === activeBracketId);
+    if (!curM) return;
+
+    setMatchMin(0);
+    setIsHalftime(false);
+    setHomeLiveGoals(0);
+    setAwayLiveGoals(0);
+    setLiveGoalScorers([]);
+    setLivePenaltyStatus(null);
+    setBracketMatchState("PLAYING");
+
+    const isLeg2 = bracketLeg === 2 || curM.stage === "FINAL";
+    const homeTeam = isLeg2 ? curM.teamAway : curM.teamHome;
+    const awayTeam = isLeg2 ? curM.teamHome : curM.teamAway;
+
+    const res = calculateMatchGoals(homeTeam.rating, awayTeam.rating);
+    const targetHome = res.homeGoals;
+    const targetAway = res.awayGoals;
+
+    const plannedEvents: { minute: number; name: string; isHome: boolean }[] = [];
+    const activeFb = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
+
+    for (let i = 0; i < targetHome; i++) {
+      const min = Math.floor(Math.random() * 88) + 2;
+      const scorer = homeTeam.isUser
+        ? pickRealisticFbScorer(activeFb)
+        : `${homeTeam.shortName} Yıldızı`;
+      plannedEvents.push({ minute: min, name: scorer, isHome: true });
+    }
+
+    for (let i = 0; i < targetAway; i++) {
+      const min = Math.floor(Math.random() * 88) + 2;
+      const scorer = awayTeam.isUser
+        ? pickRealisticFbScorer(activeFb)
+        : `${awayTeam.shortName} Yıldızı`;
+      plannedEvents.push({ minute: min, name: scorer, isHome: false });
+    }
+
+    plannedEvents.sort((a, b) => a.minute - b.minute);
+
+    if (simSpeed === 100) {
+      setTimeout(() => {
+        setHomeLiveGoals(targetHome);
+        setAwayLiveGoals(targetAway);
+        setLiveGoalScorers(plannedEvents);
+        setBracketMatchState("FINISHED");
+
+        if (curM.stage === "FINAL" || bracketLeg === 2) {
+          const outcome = checkLeg2Outcome(curM, targetHome, targetAway);
+          if (!outcome.isDraw) {
+            finalizeBracketMatch(curM, targetHome, targetAway, outcome.winnerId, outcome.winnerName, false);
+          } else {
+            runAutomatedPenaltyShootout(curM, targetHome, targetAway);
+          }
+        } else {
+          setBracketMatches((prev) =>
+            prev.map((m) => (m.id === curM.id ? { ...m, leg1: { homeScore: targetHome, awayScore: targetAway, played: true } } : m))
+          );
+        }
+      }, 100);
+      return;
+    }
+
+    let min = 0;
+    const intervalMs = Math.max(18, Math.floor(70 / simSpeed));
+
+    timerRef.current = setInterval(() => {
+      min += 1;
+      setMatchMin(min);
+
+      if (min === 45) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsHalftime(true);
+        const halftimeWaitMs = Math.max(40, Math.floor(1200 / simSpeed));
+
+        setTimeout(() => {
+          setIsHalftime(false);
+          resumeBracketSecondHalf(min, plannedEvents, curM, targetHome, targetAway, intervalMs, isLeg2);
+        }, halftimeWaitMs);
+        return;
+      }
+
+      const past = plannedEvents.filter((e) => e.minute <= min);
+      setLiveGoalScorers(past);
+      setHomeLiveGoals(past.filter((e) => e.isHome).length);
+      setAwayLiveGoals(past.filter((e) => !e.isHome).length);
+    }, intervalMs);
+  };
+
   const advanceBracketRound = () => {
     clearAllSimTimers();
     const curM = bracketMatches.find((m) => m.id === activeBracketId);
@@ -1328,6 +1503,21 @@ export default function FBCLMasterpieceApp() {
     bracketLeg === 2 && activeBracketMatch?.stage !== "FINAL" ? activeBracketMatch?.teamAway : activeBracketMatch?.teamHome;
   const activeBracketAway =
     bracketLeg === 2 && activeBracketMatch?.stage !== "FINAL" ? activeBracketMatch?.teamHome : activeBracketMatch?.teamAway;
+
+  const simulateRestOfTournament = (table: SwissTableRow[]) => {
+    const sorted = [...table].sort((a, b) => b.points - a.points || b.gd - a.gd);
+    const champ = sorted[Math.floor(Math.random() * 4)]?.name || "Real Madrid";
+    setTournamentWinner(champ);
+  };
+
+  const userRank = useMemo(() => {
+    const sorted = [...swissTable].sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
+    const idx = sorted.findIndex((r) => r.id === "fb");
+    return idx !== -1 ? idx + 1 : 15;
+  }, [swissTable]);
+
+  const isEliminatedInLeague = leagueFinished && userRank > 24;
+  const isDirectR16 = leagueFinished && userRank <= 8;
 
   const handleRestartCampaign = () => {
     clearAllSimTimers();
