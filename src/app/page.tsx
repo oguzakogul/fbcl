@@ -171,7 +171,7 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 3. KALICI SES MOTORU (OTOMATİK UCL MARŞI DESTEKLİ)
+// 3. KALICI SES MOTORU
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
@@ -386,7 +386,7 @@ export default function FBCLMasterpieceApp() {
   const [duelResult, setDuelResult] = useState<{ userScore: number; oppScore: number; userScorers: string[]; oppScorers: string[]; oppManager: string } | null>(null);
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
-  // GÜNCEL FENERBAHÇE HABERLERİ (Canlı Bant Bandı)
+  // Canlı Fenerbahçe Haberleri (Haber Bandı)
   const [tickerIndex, setTickerIndex] = useState<number>(0);
   const tickerEvents = useMemo(() => [
     "🟡🔵 Fenerbahçe'de Şampiyonlar Ligi kampı için geri sayım başladı! Kadıköy'de heyecan dorukta.",
@@ -1177,7 +1177,7 @@ export default function FBCLMasterpieceApp() {
 
   const handleStartDrawCeremony = () => {
     clearAllSimTimers();
-    // OTOMATİK UCL MARŞINI TETİKLE (Kullanıcı butona bastığı an tetiklenir)
+    // Otomatik UCL Marşını çal
     safeAudio.playUcl(setUclAudioActive);
     setFbAudioActive(false);
     setCurrentScreen("DRAW");
@@ -1655,7 +1655,7 @@ export default function FBCLMasterpieceApp() {
   const isEliminatedInLeague = leagueFinished && userRank > 24;
   const isDirectR16 = leagueFinished && userRank <= 8;
 
-  const handleRestartCampaign = () => {
+    const handleRestartCampaign = () => {
     clearAllSimTimers();
     safeAudio.stopAll(setUclAudioActive, setFbAudioActive);
     setLineup({});
@@ -1664,7 +1664,7 @@ export default function FBCLMasterpieceApp() {
     setSelectedPlayer(null);
     setFixtures([]);
     setSwissTable([]);
-    setBracketMatches([]);
+    setBracketMatches([]); // <-- Doğru kullanım: Boş dizi
     setPlayerGoalCounts({});
     setPassJokers(1);
     setMemorableMatch(null);
@@ -1803,10 +1803,10 @@ export default function FBCLMasterpieceApp() {
 
             <button
               type="button"
-              onClick={handleStartDrawCeremony}
+              onClick={() => setCurrentScreen("DRAFT")}
               className="w-full sm:flex-1 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-8 py-3.5 rounded-xl shadow-[0_0_30px_rgba(254,241,0,0.5)] active:scale-95 transition-all flex items-center justify-center gap-2 tracking-wider uppercase"
             >
-              <OfficialUCLLogo className="w-5 h-5" /> Turnuvayı Başlat
+              <OfficialUCLLogo className="w-5 h-5" /> Kadro Kurmaya Başla
             </button>
           </div>
         </main>
@@ -3235,4 +3235,3 @@ function FastSnappyWheelModal({
     </div>
   );
 }
-
