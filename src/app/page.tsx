@@ -34,28 +34,26 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publish
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // =================================================================
-// 1. OTOMATİK HAFTALIK & GÜNLÜK GÖREV (QUEST) MOTORU
+// 1. OTOMATİK HAFTALIK & TEK TURNUVA GÖREV (QUEST) MOTORU
 // =================================================================
 interface QuestItem {
   id: string;
   title: string;
   desc: string;
   target: number;
-  progressKey: "wins" | "goals" | "trophies" | "cleanSheets";
+  progressKey: "tournamentWins" | "tournamentGoals" | "trophies" | "cleanSheets";
   completed: boolean;
 }
 
 function getWeeklyQuests(): QuestItem[] {
-  // Haftalık ID hesaplama (Her Pazartesi otomatik yenilenir)
   const now = new Date();
   const weekId = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
   
-  // Sabit havuzdan haftaya göre deterministik seçim
   const pool: Omit<QuestItem, "completed">[] = [
-    { id: "q1", title: "Kadıköy Fatihi", desc: "Turnuvada en az 5 maç kazan.", target: 5, progressKey: "wins" },
-    { id: "q2", title: "Gol Makinesi", desc: "Toplamda 15 gol at.", target: 15, progressKey: "goals" },
-    { id: "q3", title: "Kupayı Getir", desc: "1 UEFA Champions League kupası kazan.", target: 1, progressKey: "trophies" },
-    { id: "q4", title: "Savunma Duvarı", desc: "Lig aşamasında hiç gol yeme/maç kazan.", target: 3, progressKey: "cleanSheets" }
+    { id: "q1", title: "Kusursuz Seri", desc: "Aktif turnuvada en az 5 maç kazan.", target: 5, progressKey: "tournamentWins" },
+    { id: "q2", title: "Gol Yağmuru", desc: "Aktif turnuvada toplam 12 gol at.", target: 12, progressKey: "tournamentGoals" },
+    { id: "q3", title: "Müziği Duy", desc: "Aktif turnuvada UEFA Şampiyonlar Ligi kupasını kazan.", target: 1, progressKey: "trophies" },
+    { id: "q4", title: "Kale Emniyette", desc: "Aktif turnuvada 3 maçta kalesini gole kapat.", target: 3, progressKey: "cleanSheets" }
   ];
 
   const index = weekId % pool.length;
@@ -173,7 +171,7 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 3. KALICI SES MOTORU
+// 3. KALICI SES MOTORU (OTOMATİK UCL MARŞI DESTEKLİ)
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
@@ -388,23 +386,24 @@ export default function FBCLMasterpieceApp() {
   const [duelResult, setDuelResult] = useState<{ userScore: number; oppScore: number; userScorers: string[]; oppScorers: string[]; oppManager: string } | null>(null);
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
-  // Canlı Bildirim Bandı
+  // GÜNCEL FENERBAHÇE HABERLERİ (Canlı Bant Bandı)
   const [tickerIndex, setTickerIndex] = useState<number>(0);
   const tickerEvents = useMemo(() => [
-    "⚡ Otomatik Haftalık Kadıköy Görevleri aktif!",
-    "🏆 Global Şeref Kürsüsü canlı verilerle güncellendi!",
-    "🔥 @SariLacivert, İsviçre Ligi'nde 8'de 8 yaparak rekor kırdı!",
-    "🧤 @VolkanınVeliahdı, Seri penaltılarda Real Madrid'e karşı 3 penaltı kurtardı!",
+    "🟡🔵 Fenerbahçe'de Şampiyonlar Ligi kampı için geri sayım başladı! Kadıköy'de heyecan dorukta.",
+    "⚡ UEFA'dan Fenerbahçe'nin yeni kadro yapılanmasına büyük övgü: 'Avrupa'nın en dinamik orta sahası!'",
+    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi: 'Hedef bu kez kulübe kupayı getirmek.'",
+    "⭐ Alex de Souza'dan açıklama: 'Fenerbahçe'nin Şampiyonlar Ligi'ndeki bu kadrosu efsaneleri hatırlatıyor.'",
+    "🧤 Kaleci eldivenlerinde muazzam form: Kadıköy'de geçit vermeyen performanslar konuşuluyor.",
+    "🚀 Haftalık Kadıköy Hedefleri güncellendi: Maçları kazan, rozetleri topla ve zirveye adını yazdır!"
   ], []);
 
   useEffect(() => {
     const tickerInterval = setInterval(() => {
       setTickerIndex((prev) => (prev + 1) % tickerEvents.length);
-    }, 4500);
+    }, 5000);
     return () => clearInterval(tickerInterval);
   }, [tickerEvents.length]);
 
-  // Supabase ve Yerel Verileri Çekme
   const fetchGlobalLeaderboard = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -444,7 +443,6 @@ export default function FBCLMasterpieceApp() {
     try { localStorage.setItem("fb_ucl_manager_name", name); } catch {}
   };
 
-  // Zamanlayıcı Ref'leri
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondHalfTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const drawIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1179,7 +1177,8 @@ export default function FBCLMasterpieceApp() {
 
   const handleStartDrawCeremony = () => {
     clearAllSimTimers();
-    safeAudio.tryAutoPlayUcl(setUclAudioActive);
+    // OTOMATİK UCL MARŞINI TETİKLE (Kullanıcı butona bastığı an tetiklenir)
+    safeAudio.playUcl(setUclAudioActive);
     setFbAudioActive(false);
     setCurrentScreen("DRAW");
     runLiveDrawCeremony();
@@ -1686,7 +1685,7 @@ export default function FBCLMasterpieceApp() {
 
         <div className="w-full max-w-5xl z-20 mb-2">
           <div className="bg-[#000030]/90 border border-cyan-500/40 rounded-xl px-3 py-1.5 flex items-center gap-2 overflow-hidden shadow-lg">
-            <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded animate-pulse shrink-0">CANLI</span>
+            <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded animate-pulse shrink-0">HABERLER</span>
             <p className="text-xs text-cyan-200 font-bold truncate transition-all duration-300">{tickerEvents[tickerIndex]}</p>
           </div>
         </div>
@@ -1804,7 +1803,7 @@ export default function FBCLMasterpieceApp() {
 
             <button
               type="button"
-              onClick={() => setCurrentScreen("DRAFT")}
+              onClick={handleStartDrawCeremony}
               className="w-full sm:flex-1 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 hover:from-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-8 py-3.5 rounded-xl shadow-[0_0_30px_rgba(254,241,0,0.5)] active:scale-95 transition-all flex items-center justify-center gap-2 tracking-wider uppercase"
             >
               <OfficialUCLLogo className="w-5 h-5" /> Turnuvayı Başlat
@@ -1826,7 +1825,7 @@ export default function FBCLMasterpieceApp() {
                   <span className="text-2xl">🎯</span>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-emerald-400 uppercase">Kadıköy Haftalık Hedefleri</h3>
-                    <p className="text-[10px] text-slate-400">Her Pazartesi otomatik olarak yenilenir</p>
+                    <p className="text-[10px] text-slate-400">Aktif turnuva performansına göre takip edilir</p>
                   </div>
                 </div>
                 <button type="button" onClick={() => setIsQuestsModalOpen(false)} className="text-slate-400 hover:text-white text-xl font-bold px-2">✕</button>
@@ -1834,7 +1833,15 @@ export default function FBCLMasterpieceApp() {
 
               <div className="space-y-2.5">
                 {weeklyQuests.map((q) => {
-                  const currentVal = q.progressKey === "wins" ? careerStats.wins : q.progressKey === "goals" ? careerStats.goalsScored : q.progressKey === "trophies" ? careerStats.trophies : careerStats.matchesPlayed;
+                  const currentVal =
+                    q.progressKey === "tournamentWins"
+                      ? fixtures.filter((f) => f.played && ((f.isHome && (f.fbScore || 0) > (f.oppScore || 0)) || (!f.isHome && (f.oppScore || 0) < (f.fbScore || 0)))).length
+                      : q.progressKey === "tournamentGoals"
+                      ? Object.values(playerGoalCounts).reduce((a, b) => a + b, 0)
+                      : q.progressKey === "trophies"
+                      ? tournamentWinner === "Fenerbahçe SK" ? 1 : 0
+                      : fixtures.filter((f) => f.played && ((f.isHome && (f.oppScore || 0) === 0) || (!f.isHome && (f.fbScore || 0) === 0))).length;
+
                   const isDone = currentVal >= q.target;
                   const pct = Math.min(100, Math.round((currentVal / q.target) * 100));
 
@@ -2019,7 +2026,7 @@ export default function FBCLMasterpieceApp() {
     <div className="min-h-[100dvh] bg-[#000028] text-white flex flex-col items-center p-2.5 sm:p-5 select-none font-sans relative overflow-x-hidden">
       <div className="w-full max-w-4xl mb-2">
         <div className="bg-[#000030]/80 border border-cyan-500/30 rounded-lg px-2.5 py-1 flex items-center gap-2 overflow-hidden">
-          <span className="bg-red-600 text-white text-[8px] font-black px-1 rounded animate-pulse shrink-0">CANLI</span>
+          <span className="bg-red-600 text-white text-[8px] font-black px-1 rounded animate-pulse shrink-0">HABERLER</span>
           <p className="text-[11px] text-cyan-200 font-bold truncate">{tickerEvents[tickerIndex]}</p>
         </div>
       </div>
@@ -3175,7 +3182,7 @@ function FastSnappyWheelModal({
   seasons,
   onFinish,
 }: {
-  seasons:SeasonSquad[];
+  seasons: SeasonSquad[];
   onFinish: (s: SeasonSquad) => void;
 }) {
   const [disp, setDisp] = useState<SeasonSquad>(seasons[0]);
@@ -3228,3 +3235,4 @@ function FastSnappyWheelModal({
     </div>
   );
 }
+
