@@ -34,7 +34,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publish
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // =================================================================
-// 1. OTOMATİK HAFTALIK & TEK TURNUVA GÖREV (QUEST) MOTORU
+// 1. HAFTALIK & TEK TURNUVA ZİRVE DERECE GÖREV MOTORU
 // =================================================================
 interface QuestItem {
   id: string;
@@ -50,20 +50,18 @@ function getWeeklyQuests(): QuestItem[] {
   const weekId = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
   
   const pool: Omit<QuestItem, "completed">[] = [
-    { id: "q1", title: "Kusursuz Seri", desc: "Aktif turnuvada en az 5 maç kazan.", target: 5, progressKey: "tournamentWins" },
-    { id: "q2", title: "Gol Yağmuru", desc: "Aktif turnuvada toplam 12 gol at.", target: 12, progressKey: "tournamentGoals" },
-    { id: "q3", title: "Müziği Duy", desc: "Aktif turnuvada UEFA Şampiyonlar Ligi kupasını kazan.", target: 1, progressKey: "trophies" },
-    { id: "q4", title: "Kale Emniyette", desc: "Aktif turnuvada 3 maçta kalesini gole kapat.", target: 3, progressKey: "cleanSheets" }
+    { id: "q1", title: "Avrupa Fatihi", desc: "Bir turnuvada ulaştığın en yüksek toplam galibiyet.", target: 5, progressKey: "tournamentWins" },
+    { id: "q2", title: "Bombardıman", desc: "Bir turnuvada ulaştığın en yüksek toplam gol.", target: 12, progressKey: "tournamentGoals" },
+    { id: "q3", title: "Müziği Duy", desc: "UEFA Şampiyonlar Ligi kupasını müzene götür.", target: 1, progressKey: "trophies" },
+    { id: "q4", title: "Çelik Defans", desc: "Bir turnuvada ulaştığın en yüksek gol yememe (Clean Sheet) sayısı.", target: 3, progressKey: "cleanSheets" }
   ];
 
   const index = weekId % pool.length;
-  const activeQuests = [
+  return [
     pool[index],
     pool[(index + 1) % pool.length],
     pool[(index + 2) % pool.length]
-  ];
-
-  return activeQuests.map((q) => ({ ...q, completed: false }));
+  ].map((q) => ({ ...q, completed: false }));
 }
 
 // =================================================================
@@ -298,8 +296,9 @@ export default function FBCLMasterpieceApp() {
   // Menajer Adı
   const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
 
-  // Görevler (Quests)
+  // Görevler (Quests) & Zirve Skorlar
   const [weeklyQuests, setWeeklyQuests] = useState<QuestItem[]>([]);
+  const [bestQuestValues, setBestQuestValues] = useState<Record<string, number>>({});
 
   // Taktik & Kadro
   const [activeFormation, setActiveFormation] = useState<Formation>(FORMATIONS[3]);
@@ -432,11 +431,32 @@ export default function FBCLMasterpieceApp() {
       if (sPicked) setPickedPlayersCount(JSON.parse(sPicked));
       const sHof = localStorage.getItem("fb_ucl_hall_of_fame");
       if (sHof) setHallOfFame(JSON.parse(sHof));
+      const sBestQuests = localStorage.getItem("fb_ucl_best_quest_values");
+      if (sBestQuests) setBestQuestValues(JSON.parse(sBestQuests));
     } catch {}
 
     setWeeklyQuests(getWeeklyQuests());
     fetchGlobalLeaderboard();
   }, [fetchGlobalLeaderboard]);
+
+  // Anlık turnuva zirve değerlerini hesapla ve hafızada tut
+  const currentTurnWins = fixtures.filter((f) => f.played && ((f.isHome && (f.fbScore || 0) > (f.oppScore || 0)) || (!f.isHome && (f.oppScore || 0) < (f.fbScore || 0)))).length + bracketMatches.filter((m) => m.winnerId === "fb").length;
+  const currentTurnGoals = Object.values(playerGoalCounts).reduce((a, b) => a + b, 0);
+  const currentTurnTrophy = tournamentWinner === "Fenerbahçe SK" || campaignTrophy === "Şampiyon" ? 1 : 0;
+  const currentTurnCleanSheets = fixtures.filter((f) => f.played && ((f.isHome && (f.oppScore || 0) === 0) || (!f.isHome && (f.fbScore || 0) === 0))).length;
+
+  useEffect(() => {
+    const updated = {
+      tournamentWins: Math.max(bestQuestValues.tournamentWins || 0, currentTurnWins),
+      tournamentGoals: Math.max(bestQuestValues.tournamentGoals || 0, currentTurnGoals),
+      trophies: Math.max(bestQuestValues.trophies || 0, currentTurnTrophy),
+      cleanSheets: Math.max(bestQuestValues.cleanSheets || 0, currentTurnCleanSheets),
+    };
+    setBestQuestValues(updated);
+    try {
+      localStorage.setItem("fb_ucl_best_quest_values", JSON.stringify(updated));
+    } catch {}
+  }, [currentTurnWins, currentTurnGoals, currentTurnTrophy, currentTurnCleanSheets]);
 
   const handleManagerNameChange = (name: string) => {
     setManagerName(name);
@@ -1177,7 +1197,6 @@ export default function FBCLMasterpieceApp() {
 
   const handleStartDrawCeremony = () => {
     clearAllSimTimers();
-    // Otomatik UCL Marşını çal
     safeAudio.playUcl(setUclAudioActive);
     setFbAudioActive(false);
     setCurrentScreen("DRAW");
@@ -1655,7 +1674,7 @@ export default function FBCLMasterpieceApp() {
   const isEliminatedInLeague = leagueFinished && userRank > 24;
   const isDirectR16 = leagueFinished && userRank <= 8;
 
-    const handleRestartCampaign = () => {
+  const handleRestartCampaign = () => {
     clearAllSimTimers();
     safeAudio.stopAll(setUclAudioActive, setFbAudioActive);
     setLineup({});
@@ -1664,7 +1683,7 @@ export default function FBCLMasterpieceApp() {
     setSelectedPlayer(null);
     setFixtures([]);
     setSwissTable([]);
-    setBracketMatches([]); // <-- Doğru kullanım: Boş dizi
+    setBracketMatches([]);
     setPlayerGoalCounts({});
     setPassJokers(1);
     setMemorableMatch(null);
@@ -1825,7 +1844,7 @@ export default function FBCLMasterpieceApp() {
                   <span className="text-2xl">🎯</span>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-emerald-400 uppercase">Kadıköy Haftalık Hedefleri</h3>
-                    <p className="text-[10px] text-slate-400">Aktif turnuva performansına göre takip edilir</p>
+                    <p className="text-[10px] text-slate-400">Tek turnuvada ulaşılan en yüksek zirve dereceler</p>
                   </div>
                 </div>
                 <button type="button" onClick={() => setIsQuestsModalOpen(false)} className="text-slate-400 hover:text-white text-xl font-bold px-2">✕</button>
@@ -1833,15 +1852,8 @@ export default function FBCLMasterpieceApp() {
 
               <div className="space-y-2.5">
                 {weeklyQuests.map((q) => {
-                  const currentVal =
-                    q.progressKey === "tournamentWins"
-                      ? fixtures.filter((f) => f.played && ((f.isHome && (f.fbScore || 0) > (f.oppScore || 0)) || (!f.isHome && (f.oppScore || 0) < (f.fbScore || 0)))).length
-                      : q.progressKey === "tournamentGoals"
-                      ? Object.values(playerGoalCounts).reduce((a, b) => a + b, 0)
-                      : q.progressKey === "trophies"
-                      ? tournamentWinner === "Fenerbahçe SK" ? 1 : 0
-                      : fixtures.filter((f) => f.played && ((f.isHome && (f.oppScore || 0) === 0) || (!f.isHome && (f.fbScore || 0) === 0))).length;
-
+                  const bestVal = bestQuestValues[q.progressKey] || 0;
+                  const currentVal = Math.min(q.target, bestVal);
                   const isDone = currentVal >= q.target;
                   const pct = Math.min(100, Math.round((currentVal / q.target) * 100));
 
@@ -1852,7 +1864,7 @@ export default function FBCLMasterpieceApp() {
                           {isDone ? "✅" : "📌"} {q.title}
                         </span>
                         <span className={`font-black ${isDone ? "text-emerald-400" : "text-yellow-400"}`}>
-                          {currentVal} / {q.target}
+                          {currentVal} / {q.target} {isDone && "✓"}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 mb-2">{q.desc}</p>
@@ -1966,7 +1978,7 @@ export default function FBCLMasterpieceApp() {
           </div>
         )}
 
-        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ */}
+        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ (EN ÇOK KUPADAN AŞAĞIYA SIRALI) */}
         {isLeaderboardOpen && (
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
             <div className="w-full max-w-2xl bg-[#00003c] border-2 border-cyan-400/70 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto text-left">
@@ -1975,7 +1987,7 @@ export default function FBCLMasterpieceApp() {
                   <span className="text-2xl">👑</span>
                   <div>
                     <h3 className="text-base sm:text-lg font-black text-cyan-400 uppercase">Kadıköy Şeref Kürsüsü (Global)</h3>
-                    <p className="text-[10px] text-slate-400">Supabase Bulut Üzerinden Canlı Oyuncu Sıralaması</p>
+                    <p className="text-[10px] text-slate-400">Kupaya ve puana göre yukarıdan aşağıya sıralı</p>
                   </div>
                 </div>
                 <button type="button" onClick={() => setIsLeaderboardOpen(false)} className="text-slate-400 hover:text-white text-xl font-bold px-2">✕</button>
@@ -1983,28 +1995,36 @@ export default function FBCLMasterpieceApp() {
 
               {globalLeaderboard.length > 0 ? (
                 <div className="space-y-2">
-                  {globalLeaderboard.map((item, i) => {
-                    const badge = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
-                    return (
-                      <div
-                        key={item.id || i}
-                        className="flex items-center justify-between p-3 rounded-2xl border bg-slate-950 border-slate-800 text-xs shadow-md"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="text-base font-black w-6 text-center">{badge}</span>
-                          <div>
-                            <span className="text-white font-bold block text-sm">{item.manager_name || "Kadıköy Fatihi"}</span>
-                            <span className="text-[10px] text-slate-400">
-                              Taktik: {item.formation_name || "Dengeli"} • En Yüksek OVR: {item.max_ovr} • En İyi Lig Puanı: {item.best_points}P
-                            </span>
+                  {globalLeaderboard
+                    .sort((a, b) => (b.trophies - a.trophies) || (b.best_points - a.best_points) || (b.max_ovr - a.max_ovr))
+                    .map((item, i) => {
+                      const badge = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
+                      const recordDate = item.squad_data?.date || "2026";
+
+                      return (
+                        <div
+                          key={item.id || i}
+                          className="flex items-center justify-between p-3 rounded-2xl border bg-slate-950 border-slate-800 text-xs shadow-md"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-base font-black w-6 text-center">{badge}</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-bold block text-sm">{item.manager_name || "Kadıköy Fatihi"}</span>
+                                <span className="text-[9px] text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">📅 {recordDate}</span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 mt-0.5 block">
+                                Taktik: <strong className="text-slate-300">{item.formation_name || "Dengeli"}</strong> • Zirve OVR: <strong className="text-cyan-300">{item.max_ovr}</strong> • En İyi Lig Puanı: <strong className="text-yellow-400">{item.best_points}P</strong>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-yellow-400 font-black text-sm block">🏆 {item.trophies} Kupa</span>
+                            <span className="text-[9px] text-emerald-400 font-bold block">En İyi Derece</span>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-yellow-400 font-black text-sm block">🏆 {item.trophies} Kupa</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-400 text-xs">
