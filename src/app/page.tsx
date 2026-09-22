@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import confetti from "canvas-confetti";
+import { createClient } from "@supabase/supabase-js";
 import {
   FORMATIONS,
   UCL_36_POTS,
@@ -24,6 +25,13 @@ import {
   type HallOfFameEntry,
   type DuelOpponentSquad,
 } from "./data/seasons";
+
+// =================================================================
+// 0. SUPABASE CLIENT BAĞLANTISI
+// =================================================================
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://rjofgkslcaqcnwgfdyut.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_P1u6R87ypGMQbsouNjnAzw_aKCdYAkv";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // =================================================================
 // 1. RESMİ LOGO VE AMBLEM BİLEŞENLERİ
@@ -130,14 +138,16 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 2. KALICI SES MOTORU (MANUEL KONTROLLÜ)
+// 2. KALICI SES MOTORU (AKILLI OTOMATİK & MANUEL KONTROLLÜ)
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
   private fb: HTMLAudioElement | null = null;
   public uclPlaying = false;
   public fbPlaying = false;
-  public isManuallyMuted = true; // Varsayılan olarak kapalı, sadece kullanıcı basarsa açılır
+  public userHasExplicitlyMuted = false;
+  public hasPlayedFbOnce = false;
+  public hasPlayedUclOnce = false;
 
   public init() {
     if (typeof window !== "undefined" && !this.ucl) {
@@ -153,8 +163,19 @@ class SafeAudioEngine {
     }
   }
 
+  public tryAutoPlayFb(cb?: (p: boolean) => void) {
+    if (this.userHasExplicitlyMuted || this.hasPlayedFbOnce) return;
+    this.hasPlayedFbOnce = true;
+    this.playFb(cb);
+  }
+
+  public tryAutoPlayUcl(cb?: (p: boolean) => void) {
+    if (this.userHasExplicitlyMuted || this.hasPlayedUclOnce) return;
+    this.hasPlayedUclOnce = true;
+    this.playUcl(cb);
+  }
+
   public playFb(cb?: (p: boolean) => void) {
-    if (this.isManuallyMuted) return;
     this.init();
     if (!this.fb) return;
     if (this.uclPlaying && this.ucl) {
@@ -171,7 +192,6 @@ class SafeAudioEngine {
   }
 
   public playUcl(cb?: (p: boolean) => void) {
-    if (this.isManuallyMuted) return;
     this.init();
     if (!this.ucl) return;
     if (this.fbPlaying && this.fb) {
@@ -208,10 +228,10 @@ class SafeAudioEngine {
     if (this.fbPlaying) {
       this.fb.pause();
       this.fbPlaying = false;
-      this.isManuallyMuted = true;
+      this.userHasExplicitlyMuted = true;
       cb(false);
     } else {
-      this.isManuallyMuted = false;
+      this.userHasExplicitlyMuted = false;
       this.playFb(cb);
     }
   }
@@ -222,10 +242,10 @@ class SafeAudioEngine {
     if (this.uclPlaying) {
       this.ucl.pause();
       this.uclPlaying = false;
-      this.isManuallyMuted = true;
+      this.userHasExplicitlyMuted = true;
       cb(false);
     } else {
-      this.isManuallyMuted = false;
+      this.userHasExplicitlyMuted = false;
       this.playUcl(cb);
     }
   }
@@ -316,6 +336,7 @@ export default function FBCLMasterpieceApp() {
   const [allTimeScorers, setAllTimeScorers] = useState<Record<string, number>>({});
   const [pickedPlayersCount, setPickedPlayersCount] = useState<Record<string, number>>({});
   const [hallOfFame, setHallOfFame] = useState<HallOfFameEntry[]>([]);
+  const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
 
   // Modallar
   const [isStatsModalOpen, setIsStatsModalOpen] = useState<boolean>(false);
@@ -329,7 +350,7 @@ export default function FBCLMasterpieceApp() {
   const [tickerIndex, setTickerIndex] = useState<number>(0);
   const tickerEvents = useMemo(() => [
     "⚡ @KadikoyBogasi, 89'da van Hooijdonk frikiğiyle City'yi devirdi!",
-    "🏆 @1907Efsane, 88.4 OVR Daum 4-4-2 kurgusuyla Münih'te Şampiyon oldu!",
+    "🏆 Global Şeref Kürsüsü güncellendi, gerçek oyuncu skorları aktif!",
     "🔥 @SariLacivert, İsviçre Ligi'nde 8'de 8 yaparak 24 puan rekoru kırdı!",
     "🧤 @VolkanınVeliahdı, Seri penaltılarda Real Madrid'e karşı 3 penaltı kurtardı!",
     "⭐ @AlexDeSouzaFan, Alex ile kariyerinde 100 gole ulaştı!",
@@ -343,7 +364,22 @@ export default function FBCLMasterpieceApp() {
     return () => clearInterval(tickerInterval);
   }, [tickerEvents.length]);
 
-  // LocalStorage / Supabase Altyapılı Yükleme
+  // LocalStorage ve Supabase Verilerini Çekme
+  const fetchGlobalLeaderboard = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("leaderboard")
+        .select("*")
+        .order("trophies", { ascending: false })
+        .order("best_points", { ascending: false })
+        .limit(10);
+      
+      if (!error && data) {
+        setGlobalLeaderboard(data);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -356,7 +392,9 @@ export default function FBCLMasterpieceApp() {
       const sHof = localStorage.getItem("fb_ucl_hall_of_fame");
       if (sHof) setHallOfFame(JSON.parse(sHof));
     } catch {}
-  }, []);
+
+    fetchGlobalLeaderboard();
+  }, [fetchGlobalLeaderboard]);
 
   // Zamanlayıcı Ref'leri
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -908,7 +946,7 @@ export default function FBCLMasterpieceApp() {
     });
   }, []);
 
-  const recordTrophyInHallOfFame = useCallback((finalTrophy: string) => {
+  const recordTrophyInHallOfFame = useCallback(async (finalTrophy: string) => {
     const active = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
     const topScorer = Object.entries(playerGoalCounts).sort((a, b) => b[1] - a[1])[0];
 
@@ -942,7 +980,27 @@ export default function FBCLMasterpieceApp() {
       try { localStorage.setItem("fb_ucl_career_stats", JSON.stringify(updated)); } catch {}
       return updated;
     });
-  }, [lineup, playerGoalCounts, rawTeamOvr, activeFormation.name]);
+
+    // Supabase'e Global Kürsü Verisini Gönder
+    try {
+      const totalWins = careerStats.wins;
+      const bestPts = careerStats.highestLeaguePoints;
+      const managerName = "Kadıköy Fatihi"; // İsteğe bağlı isim özelleştirmesi yapılabilir
+      const trophiesCount = careerStats.trophies + (finalTrophy === "Şampiyon" ? 1 : 0);
+
+      await supabase.from("leaderboard").insert([
+        {
+          manager_name: managerName,
+          trophies: trophiesCount,
+          max_ovr: rawTeamOvr,
+          best_points: bestPts,
+          formation_name: activeFormation.name,
+          squad_data: newEntry,
+        },
+      ]);
+      fetchGlobalLeaderboard();
+    } catch {}
+  }, [lineup, playerGoalCounts, rawTeamOvr, activeFormation.name, careerStats, fetchGlobalLeaderboard]);
 
   const generateSquadShareCode = useCallback(() => {
     const active = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
@@ -1065,10 +1123,13 @@ export default function FBCLMasterpieceApp() {
 
   const handleRollDice = () => {
     setIsRolling(true);
+    safeAudio.tryAutoPlayFb(setFbAudioActive);
   };
 
   const handleStartDrawCeremony = () => {
     clearAllSimTimers();
+    safeAudio.tryAutoPlayUcl(setUclAudioActive);
+    setFbAudioActive(false);
     setCurrentScreen("DRAW");
     runLiveDrawCeremony();
   };
@@ -1575,7 +1636,10 @@ export default function FBCLMasterpieceApp() {
             </button>
             <button
               type="button"
-              onClick={() => setIsLeaderboardOpen(true)}
+              onClick={() => {
+                fetchGlobalLeaderboard();
+                setIsLeaderboardOpen(true);
+              }}
               className="px-3 py-1.5 rounded-xl text-xs font-black border bg-slate-900 border-slate-700 text-cyan-300 hover:border-cyan-400 transition-all flex items-center gap-1"
             >
               👑 Şeref Kürsüsü
@@ -1773,7 +1837,7 @@ export default function FBCLMasterpieceApp() {
           </div>
         )}
 
-        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ */}
+        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ (GERÇEK SUPABASE VERİLERİ) */}
         {isLeaderboardOpen && (
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
             <div className="w-full max-w-2xl bg-[#00003c] border-2 border-cyan-400/70 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto text-left">
@@ -1781,43 +1845,44 @@ export default function FBCLMasterpieceApp() {
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">👑</span>
                   <div>
-                    <h3 className="text-base sm:text-lg font-black text-cyan-400 uppercase">Kadıköy Şeref Kürsüsü</h3>
-                    <p className="text-[10px] text-slate-400">Global En İyiler ve Kupa Rekortmenleri</p>
+                    <h3 className="text-base sm:text-lg font-black text-cyan-400 uppercase">Kadıköy Şeref Kürsüsü (Global)</h3>
+                    <p className="text-[10px] text-slate-400">Supabase Bulut Üzerinden Canlı Oyuncu Sıralaması</p>
                   </div>
                 </div>
                 <button type="button" onClick={() => setIsLeaderboardOpen(false)} className="text-slate-400 hover:text-white text-xl font-bold px-2">✕</button>
               </div>
 
-              <div className="space-y-2">
-                {[
-                  { rank: 1, name: "Kadıköy Fatihi", trophies: 12, maxOvr: 89.2, bestPoints: 24, badge: "🥇" },
-                  { rank: 2, name: "ÇubukluAşkı", trophies: 9, maxOvr: 88.7, bestPoints: 22, badge: "🥈" },
-                  { rank: 3, name: "DaumTaktiği", trophies: 7, maxOvr: 88.1, bestPoints: 21, badge: "🥉" },
-                  { rank: 4, name: "Alex10_Legend", trophies: 5, maxOvr: 87.5, bestPoints: 20, badge: "4" },
-                  { rank: 5, name: "SarıKanarya_07", trophies: 4, maxOvr: 86.9, bestPoints: 19, badge: "5" },
-                  { rank: "SEN", name: "Senin Kariyerin", trophies: careerStats.trophies, maxOvr: careerStats.maxOvr, bestPoints: careerStats.highestLeaguePoints, badge: "⭐", isUser: true },
-                ].map((item, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center justify-between p-3 rounded-2xl border text-xs ${
-                      (item as { isUser?: boolean }).isUser
-                        ? "bg-yellow-500/20 border-yellow-400 font-black shadow-lg"
-                        : "bg-slate-950 border-slate-800"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-base font-black w-6 text-center">{item.badge}</span>
-                      <div>
-                        <span className="text-white font-bold block text-sm">{item.name}</span>
-                        <span className="text-[10px] text-slate-400">En Yüksek OVR: {item.maxOvr} • En İyi Lig: {item.bestPoints}P</span>
+              {globalLeaderboard.length > 0 ? (
+                <div className="space-y-2">
+                  {globalLeaderboard.map((item, i) => {
+                    const badge = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
+                    return (
+                      <div
+                        key={item.id || i}
+                        className="flex items-center justify-between p-3 rounded-2xl border bg-slate-950 border-slate-800 text-xs shadow-md"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-base font-black w-6 text-center">{badge}</span>
+                          <div>
+                            <span className="text-white font-bold block text-sm">{item.manager_name || "Kadıköy Fatihi"}</span>
+                            <span className="text-[10px] text-slate-400">
+                              Taktik: {item.formation_name || "Dengeli"} • En Yüksek OVR: {item.max_ovr} • En İyi Lig Puanı: {item.best_points}P
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-yellow-400 font-black text-sm block">🏆 {item.trophies} Kupa</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-yellow-400 font-black text-sm block">🏆 {item.trophies} Kupa</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <p>Henüz bulut veritabanında kayıtlı bir menajer yok.</p>
+                  <p className="mt-1 text-cyan-300">İlk turnuvayı tamamlayarak adını zirveye yazdır!</p>
+                </div>
+              )}
             </div>
           </div>
         )}
