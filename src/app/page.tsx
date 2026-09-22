@@ -34,7 +34,42 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publish
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // =================================================================
-// 1. RESMİ LOGO VE AMBLEM BİLEŞENLERİ
+// 1. OTOMATİK HAFTALIK & GÜNLÜK GÖREV (QUEST) MOTORU
+// =================================================================
+interface QuestItem {
+  id: string;
+  title: string;
+  desc: string;
+  target: number;
+  progressKey: "wins" | "goals" | "trophies" | "cleanSheets";
+  completed: boolean;
+}
+
+function getWeeklyQuests(): QuestItem[] {
+  // Haftalık ID hesaplama (Her Pazartesi otomatik yenilenir)
+  const now = new Date();
+  const weekId = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
+  
+  // Sabit havuzdan haftaya göre deterministik seçim
+  const pool: Omit<QuestItem, "completed">[] = [
+    { id: "q1", title: "Kadıköy Fatihi", desc: "Turnuvada en az 5 maç kazan.", target: 5, progressKey: "wins" },
+    { id: "q2", title: "Gol Makinesi", desc: "Toplamda 15 gol at.", target: 15, progressKey: "goals" },
+    { id: "q3", title: "Kupayı Getir", desc: "1 UEFA Champions League kupası kazan.", target: 1, progressKey: "trophies" },
+    { id: "q4", title: "Savunma Duvarı", desc: "Lig aşamasında hiç gol yeme/maç kazan.", target: 3, progressKey: "cleanSheets" }
+  ];
+
+  const index = weekId % pool.length;
+  const activeQuests = [
+    pool[index],
+    pool[(index + 1) % pool.length],
+    pool[(index + 2) % pool.length]
+  ];
+
+  return activeQuests.map((q) => ({ ...q, completed: false }));
+}
+
+// =================================================================
+// 2. RESMİ LOGO VE AMBLEM BİLEŞENLERİ
 // =================================================================
 export function OfficialUCLLogo({ className = "w-7 h-7" }: { className?: string }) {
   return (
@@ -138,7 +173,7 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 2. KALICI SES MOTORU (AKILLI OTOMATİK & MANUEL KONTROLLÜ)
+// 3. KALICI SES MOTORU
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
@@ -254,13 +289,19 @@ class SafeAudioEngine {
 const safeAudio = new SafeAudioEngine();
 
 // =================================================================
-// 3. ANA UYGULAMA BİLEŞENİ
+// 4. ANA UYGULAMA BİLEŞENİ
 // =================================================================
 export default function FBCLMasterpieceApp() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("LANDING");
   const [memoryMode, setMemoryMode] = useState<boolean>(false);
   const [uclAudioActive, setUclAudioActive] = useState<boolean>(false);
   const [fbAudioActive, setFbAudioActive] = useState<boolean>(false);
+
+  // Menajer Adı
+  const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
+
+  // Görevler (Quests)
+  const [weeklyQuests, setWeeklyQuests] = useState<QuestItem[]>([]);
 
   // Taktik & Kadro
   const [activeFormation, setActiveFormation] = useState<Formation>(FORMATIONS[3]);
@@ -299,7 +340,7 @@ export default function FBCLMasterpieceApp() {
   const [swissTable, setSwissTable] = useState<SwissTableRow[]>([]);
   const [leagueFinished, setLeagueFinished] = useState<boolean>(false);
 
-  // Dinamik Eleme Turları (Play-Off -> R16 -> QF -> SF -> Final)
+  // Dinamik Eleme Turları
   const [bracketMatches, setBracketMatches] = useState<BracketMatch[]>([]);
   const [activeBracketId, setActiveBracketId] = useState<string | null>(null);
   const [bracketLeg, setBracketLeg] = useState<1 | 2>(1);
@@ -341,6 +382,7 @@ export default function FBCLMasterpieceApp() {
   // Modallar
   const [isStatsModalOpen, setIsStatsModalOpen] = useState<boolean>(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false);
+  const [isQuestsModalOpen, setIsQuestsModalOpen] = useState<boolean>(false);
   const [isDuelModalOpen, setIsDuelModalOpen] = useState<boolean>(false);
   const [duelInputCode, setDuelInputCode] = useState<string>("");
   const [duelResult, setDuelResult] = useState<{ userScore: number; oppScore: number; userScorers: string[]; oppScorers: string[]; oppManager: string } | null>(null);
@@ -349,12 +391,10 @@ export default function FBCLMasterpieceApp() {
   // Canlı Bildirim Bandı
   const [tickerIndex, setTickerIndex] = useState<number>(0);
   const tickerEvents = useMemo(() => [
-    "⚡ @KadikoyBogasi, 89'da van Hooijdonk frikiğiyle City'yi devirdi!",
-    "🏆 Global Şeref Kürsüsü güncellendi, gerçek oyuncu skorları aktif!",
-    "🔥 @SariLacivert, İsviçre Ligi'nde 8'de 8 yaparak 24 puan rekoru kırdı!",
+    "⚡ Otomatik Haftalık Kadıköy Görevleri aktif!",
+    "🏆 Global Şeref Kürsüsü canlı verilerle güncellendi!",
+    "🔥 @SariLacivert, İsviçre Ligi'nde 8'de 8 yaparak rekor kırdı!",
     "🧤 @VolkanınVeliahdı, Seri penaltılarda Real Madrid'e karşı 3 penaltı kurtardı!",
-    "⭐ @AlexDeSouzaFan, Alex ile kariyerinde 100 gole ulaştı!",
-    "🚀 @SükrüSaracogluRuhu, 3-4-3 Total Hücum taktiğiyle Bayern'e Kadıköy'de 5 attı!",
   ], []);
 
   useEffect(() => {
@@ -364,7 +404,7 @@ export default function FBCLMasterpieceApp() {
     return () => clearInterval(tickerInterval);
   }, [tickerEvents.length]);
 
-  // LocalStorage ve Supabase Verilerini Çekme
+  // Supabase ve Yerel Verileri Çekme
   const fetchGlobalLeaderboard = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -383,6 +423,8 @@ export default function FBCLMasterpieceApp() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
+      const sManager = localStorage.getItem("fb_ucl_manager_name");
+      if (sManager) setManagerName(sManager);
       const sCareer = localStorage.getItem("fb_ucl_career_stats");
       if (sCareer) setCareerStats(JSON.parse(sCareer));
       const sScorers = localStorage.getItem("fb_ucl_alltime_scorers");
@@ -393,8 +435,14 @@ export default function FBCLMasterpieceApp() {
       if (sHof) setHallOfFame(JSON.parse(sHof));
     } catch {}
 
+    setWeeklyQuests(getWeeklyQuests());
     fetchGlobalLeaderboard();
   }, [fetchGlobalLeaderboard]);
+
+  const handleManagerNameChange = (name: string) => {
+    setManagerName(name);
+    try { localStorage.setItem("fb_ucl_manager_name", name); } catch {}
+  };
 
   // Zamanlayıcı Ref'leri
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -493,6 +541,14 @@ export default function FBCLMasterpieceApp() {
     if (defenders.length > 0) return defenders[Math.floor(Math.random() * defenders.length)].player.name;
     if (attackers.length > 0) return attackers[0].player.name;
     return "Alex de Souza";
+  }
+
+  function getOpponentScorer(opponentClubId: string, opponentClubName: string): string {
+    const foundClub = UCL_36_POTS.find((c) => c.id === opponentClubId);
+    if (foundClub && foundClub.scorersPool && foundClub.scorersPool.length > 0) {
+      return foundClub.scorersPool[Math.floor(Math.random() * foundClub.scorersPool.length)];
+    }
+    return `${opponentClubName || "Rakip"} Yıldızı`;
   }
 
   function resetBracketLiveBoard() {
@@ -612,11 +668,9 @@ export default function FBCLMasterpieceApp() {
     const activeFb = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
     const fbPenPool = activeFb.length > 0 ? activeFb.map((i) => i.player.name) : ["Alex de Souza", "Pierre van Hooijdonk", "Elvir Boliç", "Tuncay Şanlı", "Moussa Sow"];
 
-    const getShooterName = (isUser: boolean, clubId: string, idx: number) => {
+    const getShooterName = (isUser: boolean, clubId: string, clubName: string, idx: number) => {
       if (isUser) return fbPenPool[idx % fbPenPool.length];
-      const club = UCL_36_POTS.find((c) => c.id === clubId);
-      if (club && club.scorersPool.length > 0) return club.scorersPool[idx % club.scorersPool.length];
-      return `${club?.shortName || "Rakip"} Yıldızı`;
+      return getOpponentScorer(clubId, clubName);
     };
 
     let round = 0;
@@ -630,12 +684,12 @@ export default function FBCLMasterpieceApp() {
     penaltyIntervalRef.current = setInterval(() => {
       round += 1;
 
-      const hShooter = getShooterName(homeClub.isUser, homeClub.id, round - 1);
+      const hShooter = getShooterName(homeClub.isUser, homeClub.id, homeClub.name, round - 1);
       const hScored = Math.random() < 0.78;
       if (hScored) homeScore++;
       homeShots.push({ shooter: hShooter, scored: hScored });
 
-      const aShooter = getShooterName(awayClub.isUser, awayClub.id, round - 1);
+      const aShooter = getShooterName(awayClub.isUser, awayClub.id, awayClub.name, round - 1);
       const aScored = Math.random() < 0.76;
       if (aScored) awayScore++;
       awayShots.push({ shooter: aShooter, scored: aScored });
@@ -648,7 +702,7 @@ export default function FBCLMasterpieceApp() {
         awayScored: aScored,
         homeShots: [...homeShots],
         awayShots: [...awayShots],
-        text: `Tur ${round}: ${homeClub.shortName} (${homeScore}) - ${awayClub.shortName} (${awayScore})`,
+        text: `Tur ${round}: ${homeClub.shortName || homeClub.name} (${homeScore}) - ${awayClub.shortName || awayClub.name} (${awayScore})`,
       });
 
       let isDecided = false;
@@ -981,16 +1035,13 @@ export default function FBCLMasterpieceApp() {
       return updated;
     });
 
-    // Supabase'e Global Kürsü Verisini Gönder
     try {
-      const totalWins = careerStats.wins;
       const bestPts = careerStats.highestLeaguePoints;
-      const managerName = "Kadıköy Fatihi"; // İsteğe bağlı isim özelleştirmesi yapılabilir
       const trophiesCount = careerStats.trophies + (finalTrophy === "Şampiyon" ? 1 : 0);
 
       await supabase.from("leaderboard").insert([
         {
-          manager_name: managerName,
+          manager_name: managerName || "Kadıköy Fatihi",
           trophies: trophiesCount,
           max_ovr: rawTeamOvr,
           best_points: bestPts,
@@ -1000,13 +1051,13 @@ export default function FBCLMasterpieceApp() {
       ]);
       fetchGlobalLeaderboard();
     } catch {}
-  }, [lineup, playerGoalCounts, rawTeamOvr, activeFormation.name, careerStats, fetchGlobalLeaderboard]);
+  }, [lineup, playerGoalCounts, rawTeamOvr, activeFormation.name, careerStats, managerName, fetchGlobalLeaderboard]);
 
   const generateSquadShareCode = useCallback(() => {
     const active = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
     if (active.length < 11) return "";
     const compactData: DuelOpponentSquad = {
-      managerName: "Kadıköy Fatihi",
+      managerName: managerName || "Kadıköy Fatihi",
       formationName: activeFormation.name,
       teamOvr: rawTeamOvr,
       players: active.map((i) => ({
@@ -1020,7 +1071,7 @@ export default function FBCLMasterpieceApp() {
     } catch {
       return "";
     }
-  }, [lineup, activeFormation.name, rawTeamOvr]);
+  }, [lineup, activeFormation.name, rawTeamOvr, managerName]);
 
   const handlePlayDuel = () => {
     if (!duelInputCode.trim()) return;
@@ -1256,8 +1307,7 @@ export default function FBCLMasterpieceApp() {
 
     for (let i = 0; i < oppGoals; i++) {
       const min = Math.floor(Math.random() * 88) + 2;
-      const pool = curFix.opponent.scorersPool;
-      const oppScorer = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : `${curFix.opponent.shortName} Yıldızı`;
+      const oppScorer = getOpponentScorer(curFix.opponent.id, curFix.opponent.name);
       plannedEvents.push({ minute: min, name: oppScorer, isHome: !isFbHome });
     }
 
@@ -1419,7 +1469,7 @@ export default function FBCLMasterpieceApp() {
       const min = Math.floor(Math.random() * 88) + 2;
       const scorer = homeTeam.isUser
         ? pickRealisticFbScorer(activeFb)
-        : `${homeTeam.shortName} Yıldızı`;
+        : getOpponentScorer(homeTeam.id, homeTeam.name);
       plannedEvents.push({ minute: min, name: scorer, isHome: true });
     }
 
@@ -1427,7 +1477,7 @@ export default function FBCLMasterpieceApp() {
       const min = Math.floor(Math.random() * 88) + 2;
       const scorer = awayTeam.isUser
         ? pickRealisticFbScorer(activeFb)
-        : `${awayTeam.shortName} Yıldızı`;
+        : getOpponentScorer(awayTeam.id, awayTeam.name);
       plannedEvents.push({ minute: min, name: scorer, isHome: false });
     }
 
@@ -1497,7 +1547,11 @@ export default function FBCLMasterpieceApp() {
           const winners = bracketMatches.map((m) => (m.winnerId === m.teamHome.id ? m.teamHome : m.teamAway));
           generateRoundOf16Bracket(swissTable.slice(0, 8), winners);
         } else if (curM.stage === "R16") {
-          const r16Winners = bracketMatches.map((m) => (m.winnerId === m.teamHome.id ? m.teamHome : m.teamAway));
+          const r16Winners = bracketMatches.map((m) => {
+            const hGoals = (m.leg1?.homeScore || 0) + (m.leg2?.awayScore || 0);
+            const aGoals = (m.leg1?.awayScore || 0) + (m.leg2?.homeScore || 0);
+            return hGoals > aGoals ? m.teamHome : m.teamAway;
+          });
           const qf: BracketMatch[] = [];
           for (let i = 0; i < 4; i++) {
             const t1 = r16Winners[i * 2];
@@ -1515,7 +1569,11 @@ export default function FBCLMasterpieceApp() {
           setBracketLeg(1);
           resetBracketLiveBoard();
         } else if (curM.stage === "QF") {
-          const qfWinners = bracketMatches.map((m) => (m.winnerId === m.teamHome.id ? m.teamHome : m.teamAway));
+          const qfWinners = bracketMatches.map((m) => {
+            const hGoals = (m.leg1?.homeScore || 0) + (m.leg2?.awayScore || 0);
+            const aGoals = (m.leg1?.awayScore || 0) + (m.leg2?.homeScore || 0);
+            return hGoals > aGoals ? m.teamHome : m.teamAway;
+          });
           const sf: BracketMatch[] = [
             {
               id: "sf_1", stage: "SF", stageTitle: "Yarı Final", teamHome: qfWinners[0], teamAway: qfWinners[1],
@@ -1534,7 +1592,11 @@ export default function FBCLMasterpieceApp() {
           setBracketLeg(1);
           resetBracketLiveBoard();
         } else if (curM.stage === "SF") {
-          const sfWinners = bracketMatches.map((m) => (m.winnerId === m.teamHome.id ? m.teamHome : m.teamAway));
+          const sfWinners = bracketMatches.map((m) => {
+            const hGoals = (m.leg1?.homeScore || 0) + (m.leg2?.awayScore || 0);
+            const aGoals = (m.leg1?.awayScore || 0) + (m.leg2?.homeScore || 0);
+            return hGoals > aGoals ? m.teamHome : m.teamAway;
+          });
           const finalMatch: BracketMatch = {
             id: "final_1", stage: "FINAL", stageTitle: "Final (Münih)", teamHome: sfWinners[0], teamAway: sfWinners[1],
             leg1: { homeScore: 0, awayScore: 0, played: false }, isUserMatch: sfWinners[0].isUser || sfWinners[1].isUser,
@@ -1553,7 +1615,7 @@ export default function FBCLMasterpieceApp() {
       } else {
         setCampaignTrophy(`${curM.stageTitle} Aşamasında Veda`);
         recordTrophyInHallOfFame(`${curM.stageTitle} Aşamasında Veda`);
-        simulateRestOfTournament(swissTable);
+        simulateRestOfTournament(bracketMatches);
         setCurrentScreen("SUMMARY");
       }
     }
@@ -1565,10 +1627,24 @@ export default function FBCLMasterpieceApp() {
   const activeBracketAway =
     bracketLeg === 2 && activeBracketMatch?.stage !== "FINAL" ? activeBracketMatch?.teamHome : activeBracketMatch?.teamAway;
 
-  const simulateRestOfTournament = (table: SwissTableRow[]) => {
-    const sorted = [...table].sort((a, b) => b.points - a.points || b.gd - a.gd);
-    const champ = sorted[Math.floor(Math.random() * 4)]?.name || "Real Madrid";
-    setTournamentWinner(champ);
+  const simulateRestOfTournament = (matches: BracketMatch[]) => {
+    const remainingTeams: { name: string; rating: number }[] = [];
+    matches.forEach((m) => {
+      if (m.winnerName) {
+        const isHomeWinner = m.winnerId === m.teamHome.id;
+        remainingTeams.push({
+          name: isHomeWinner ? m.teamHome.name : m.teamAway.name,
+          rating: isHomeWinner ? m.teamHome.rating : m.teamAway.rating,
+        });
+      }
+    });
+
+    if (remainingTeams.length > 0) {
+      remainingTeams.sort((a, b) => b.rating - a.rating);
+      setTournamentWinner(remainingTeams[0].name);
+    } else {
+      setTournamentWinner("Real Madrid");
+    }
   };
 
   const userRank = useMemo(() => {
@@ -1629,6 +1705,13 @@ export default function FBCLMasterpieceApp() {
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
+              onClick={() => setIsQuestsModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-black border bg-slate-900 border-slate-700 text-emerald-300 hover:border-emerald-400 transition-all flex items-center gap-1"
+            >
+              🎯 Haftalık Görevler
+            </button>
+            <button
+              type="button"
               onClick={() => setIsStatsModalOpen(true)}
               className="px-3 py-1.5 rounded-xl text-xs font-black border bg-slate-900 border-slate-700 text-yellow-300 hover:border-yellow-400 transition-all flex items-center gap-1"
             >
@@ -1672,6 +1755,20 @@ export default function FBCLMasterpieceApp() {
             17 Efsane Kadro • 36 Takımlı Yeni Lig Formatı • Münih Finaline Zafer Yürüyüşü
           </p>
 
+          <div className="w-full max-w-md bg-[#00003c]/90 border-2 border-cyan-400/50 rounded-2xl p-3 my-4 shadow-xl text-left">
+            <label className="text-[11px] font-black text-cyan-300 uppercase tracking-wider block mb-1.5">
+              👤 Menajer Adı / Takma Adın:
+            </label>
+            <input
+              type="text"
+              value={managerName}
+              onChange={(e) => handleManagerNameChange(e.target.value)}
+              placeholder="Adını yaz..."
+              maxLength={20}
+              className="w-full bg-slate-950 border border-cyan-500/50 px-3 py-2 rounded-xl text-xs text-yellow-300 font-bold focus:outline-none focus:border-yellow-400"
+            />
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full max-w-xl my-4 text-center">
             <div className="bg-[#000038]/80 border border-yellow-500/30 p-2 rounded-xl">
               <span className="text-[10px] text-slate-400 font-bold block">Kupa Dolabı</span>
@@ -1688,24 +1785,6 @@ export default function FBCLMasterpieceApp() {
             <div className="bg-[#000038]/80 border border-purple-500/30 p-2 rounded-xl">
               <span className="text-[10px] text-slate-400 font-bold block">En Yüksek OVR</span>
               <span className="text-lg font-black text-purple-300">{careerStats.maxOvr || "--"}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4 w-full text-left">
-            <div className="bg-[#000030]/80 border border-cyan-900/60 p-4 rounded-2xl shadow-xl">
-              <div className="w-8 h-8 rounded-xl bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 flex items-center justify-center font-black text-sm mb-2">1</div>
-              <h3 className="text-xs font-black text-white uppercase tracking-wider mb-1">Draft & 11'ini Kur</h3>
-              <p className="text-[11px] text-slate-300 leading-relaxed">17 tarihi sezon kadrosundan oyuncu seç. Albümü doldur, sadakat rekoru kır.</p>
-            </div>
-            <div className="bg-[#000030]/80 border border-cyan-900/60 p-4 rounded-2xl shadow-xl">
-              <div className="w-8 h-8 rounded-xl bg-cyan-400/10 border border-cyan-400/40 text-cyan-400 flex items-center justify-center font-black text-sm mb-2">2</div>
-              <h3 className="text-xs font-black text-white uppercase tracking-wider mb-1">36 Takımlı Lig</h3>
-              <p className="text-[11px] text-slate-300 leading-relaxed">4 torbadan 8 rakip. İlk 8 doğrudan Son 16'ya gider, 9-24 Play-Off oynar.</p>
-            </div>
-            <div className="bg-[#000030]/80 border border-cyan-900/60 p-4 rounded-2xl shadow-xl">
-              <div className="w-8 h-8 rounded-xl bg-emerald-400/10 border border-emerald-400/40 text-emerald-400 flex items-center justify-center font-black text-sm mb-2">3</div>
-              <h3 className="text-xs font-black text-white uppercase tracking-wider mb-1">Münih Finali</h3>
-              <p className="text-[11px] text-slate-300 leading-relaxed">Eleme turlarını aş, kupayı Şampiyonlar Müzesi'ne koy ve kodunu paylaş!</p>
             </div>
           </div>
 
@@ -1735,8 +1814,51 @@ export default function FBCLMasterpieceApp() {
 
         <footer className="text-center text-[11px] text-slate-500 font-medium z-10 border-t border-cyan-500/10 pt-2 w-full max-w-5xl flex justify-between">
           <span>Fenerbahçe Spor Kulübü • UEFA Champions League Simulator</span>
-          <span className="text-cyan-400 font-bold">Kariyer Maçı: {careerStats.matchesPlayed}</span>
+          <span className="text-cyan-400 font-bold">Menajer: {managerName}</span>
         </footer>
+
+        {/* MODAL: HAFTALIK GÖREVLER (QUESTS) */}
+        {isQuestsModalOpen && (
+          <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+            <div className="w-full max-w-md bg-[#00003c] border-2 border-emerald-400/70 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col text-left">
+              <div className="flex justify-between items-center border-b border-emerald-500/30 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">🎯</span>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-emerald-400 uppercase">Kadıköy Haftalık Hedefleri</h3>
+                    <p className="text-[10px] text-slate-400">Her Pazartesi otomatik olarak yenilenir</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setIsQuestsModalOpen(false)} className="text-slate-400 hover:text-white text-xl font-bold px-2">✕</button>
+              </div>
+
+              <div className="space-y-2.5">
+                {weeklyQuests.map((q) => {
+                  const currentVal = q.progressKey === "wins" ? careerStats.wins : q.progressKey === "goals" ? careerStats.goalsScored : q.progressKey === "trophies" ? careerStats.trophies : careerStats.matchesPlayed;
+                  const isDone = currentVal >= q.target;
+                  const pct = Math.min(100, Math.round((currentVal / q.target) * 100));
+
+                  return (
+                    <div key={q.id} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-bold text-white flex items-center gap-1.5">
+                          {isDone ? "✅" : "📌"} {q.title}
+                        </span>
+                        <span className={`font-black ${isDone ? "text-emerald-400" : "text-yellow-400"}`}>
+                          {currentVal} / {q.target}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mb-2">{q.desc}</p>
+                      <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                        <div className={`h-full transition-all duration-500 ${isDone ? "bg-emerald-400" : "bg-cyan-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* MODAL: KARİYER & ŞAMPİYONLAR MÜZESİ */}
         {isStatsModalOpen && (
@@ -1746,7 +1868,7 @@ export default function FBCLMasterpieceApp() {
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">🏆</span>
                   <div>
-                    <h3 className="text-base sm:text-lg font-black text-yellow-400 uppercase">Kariyer & Şampiyonlar Müzesi</h3>
+                    <h3 className="text-base sm:text-lg font-black text-yellow-400 uppercase">Kariyer & Şampiyonlar Müzesi ({managerName})</h3>
                     <p className="text-[10px] text-slate-400">Tüm Zamanlar İstatistikleri ve Kadıköy Hatıraları</p>
                   </div>
                 </div>
@@ -1837,7 +1959,7 @@ export default function FBCLMasterpieceApp() {
           </div>
         )}
 
-        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ (GERÇEK SUPABASE VERİLERİ) */}
+        {/* MODAL: KADIKÖY ŞEREF KÜRSÜSÜ */}
         {isLeaderboardOpen && (
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
             <div className="w-full max-w-2xl bg-[#00003c] border-2 border-cyan-400/70 rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto text-left">
@@ -1916,7 +2038,7 @@ export default function FBCLMasterpieceApp() {
             <div>
               <h1 className="text-sm sm:text-lg font-black tracking-wider text-white flex items-center gap-1.5 uppercase">
                 UEFA CHAMPIONS LEAGUE
-                <span className="text-[9px] sm:text-[10px] bg-cyan-500 text-slate-950 px-1 py-0.5 rounded font-black tracking-normal">KADIKÖY</span>
+                <span className="text-[9px] sm:text-[10px] bg-cyan-500 text-slate-950 px-1 py-0.5 rounded font-black tracking-normal">{managerName}</span>
               </h1>
               <p className="text-[9px] sm:text-[10px] text-cyan-300 font-bold tracking-wider">
                 FENERBAHÇE SK • ALBÜM: %{albumPercentage}
@@ -2398,7 +2520,7 @@ export default function FBCLMasterpieceApp() {
                           </div>
                           {isDrawn && (
                             <span className="text-[8.5px] sm:text-[9px] bg-cyan-500 text-slate-950 px-1.5 py-0.5 rounded font-black shrink-0">
-                              {drawnFixture?.isHome ? "KADIKÖY" : "DEP"}
+                              {drawnFixture?.isHome ? "KADİKÖY" : "DEP"}
                             </span>
                           )}
                         </div>
@@ -2679,7 +2801,7 @@ export default function FBCLMasterpieceApp() {
                       clearAllSimTimers();
                       setCampaignTrophy(`Lig Aşaması (${userRank}. Sıra)`);
                       recordTrophyInHallOfFame(`Lig Aşaması (${userRank}. Sıra)`);
-                      simulateRestOfTournament(swissTable);
+                      simulateRestOfTournament(bracketMatches);
                       setCurrentScreen("SUMMARY");
                     }}
                     className="w-full sm:w-auto bg-yellow-400 text-slate-950 font-black px-6 py-2 rounded-xl text-xs"
@@ -2735,7 +2857,6 @@ export default function FBCLMasterpieceApp() {
               </button>
             </div>
 
-            {/* AKTİF ELEME MAÇI SKOR TABELASI & GOLCÜLER */}
             {activeBracketMatch && activeBracketHome && activeBracketAway && (
               <div className="bg-[#000020] border-y-2 border-cyan-400 py-3 px-3 sm:px-6 rounded-xl mb-3 shadow-xl shrink-0">
                 <div className="flex justify-between items-center mb-1.5">
@@ -2788,7 +2909,6 @@ export default function FBCLMasterpieceApp() {
                   </div>
                 </div>
 
-                {/* ELEME MAÇI GOLCÜLERİ */}
                 <div className="mt-2 pt-1.5 border-t border-blue-900/50 flex justify-between text-[10.5px] sm:text-xs min-h-[18px]">
                   <div className="text-yellow-400 font-bold truncate mr-2">
                     {liveGoalScorers
@@ -2806,7 +2926,6 @@ export default function FBCLMasterpieceApp() {
                   </div>
                 </div>
 
-                {/* DÜZENLİ SIRALI PENALTI TABLOSU */}
                 {livePenaltyStatus && (
                   <div className="mt-3 pt-2 border-t border-cyan-500/40 bg-slate-950/90 p-3 rounded-xl flex flex-col items-center">
                     <span className="text-xs font-black text-yellow-400 uppercase tracking-widest mb-1">SERİ PENALTI ATIŞLARI</span>
@@ -2834,7 +2953,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
-            {/* ELEME MAÇLARI LİSTESİ */}
             <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-3 p-0.5 min-h-0">
               {bracketMatches.map((m) => (
                 <div
@@ -2912,7 +3030,7 @@ export default function FBCLMasterpieceApp() {
                     clearAllSimTimers();
                     setCampaignTrophy(`${activeBracketMatch.stageTitle} Aşamasında Veda`);
                     recordTrophyInHallOfFame(`${activeBracketMatch.stageTitle} Aşamasında Veda`);
-                    simulateRestOfTournament(swissTable);
+                    simulateRestOfTournament(bracketMatches);
                     setCurrentScreen("SUMMARY");
                   }}
                   className="w-full sm:w-auto bg-red-500 hover:bg-red-400 text-white font-black px-6 sm:px-8 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm active:scale-95 shadow-xl"
@@ -2952,7 +3070,7 @@ export default function FBCLMasterpieceApp() {
             <OfficialFBCrest className="w-16 h-16 sm:w-20 sm:h-20 mb-2 drop-shadow-[0_0_15px_rgba(254,241,0,0.6)]" />
 
             <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider">FENERBAHÇE SK</h2>
-            <p className="text-[11px] sm:text-xs text-yellow-300 font-bold mb-3">Sezon Özeti</p>
+            <p className="text-[11px] sm:text-xs text-yellow-300 font-bold mb-3">Menajer: {managerName}</p>
 
             <div className="w-full bg-slate-950/85 border border-yellow-500/40 rounded-xl p-3 sm:p-4 mb-3 text-left space-y-2 text-xs">
               <div className="flex justify-between items-center pb-1.5 border-b border-blue-950">
@@ -2993,7 +3111,6 @@ export default function FBCLMasterpieceApp() {
                 </div>
               )}
 
-              {/* İLK 11 VE OYUNCU GÜÇLERİ */}
               <div className="pt-2 border-t border-blue-950">
                 <span className="text-yellow-400 font-black block mb-1.5">📋 İLK 11 VE OYUNCU GÜÇLERİ</span>
                 <div className="grid grid-cols-2 gap-1 max-h-36 overflow-y-auto pr-0.5">
@@ -3052,13 +3169,13 @@ export default function FBCLMasterpieceApp() {
 }
 
 // =================================================================
-// 4. HIZLI ÇARK BİLEŞENİ
+// 5. HIZLI ÇARK BİLEŞENİ
 // =================================================================
 function FastSnappyWheelModal({
   seasons,
   onFinish,
 }: {
-  seasons: SeasonSquad[];
+  seasons:SeasonSquad[];
   onFinish: (s: SeasonSquad) => void;
 }) {
   const [disp, setDisp] = useState<SeasonSquad>(seasons[0]);
