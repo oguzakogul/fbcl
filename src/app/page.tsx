@@ -296,7 +296,7 @@ export default function FBCLMasterpieceApp() {
   // Menajer Adı
   const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
 
-  // Görevler (Quests) & Zirve Skorlar
+  // Görevler & Zirve Skorlar
   const [weeklyQuests, setWeeklyQuests] = useState<QuestItem[]>([]);
   const [bestQuestValues, setBestQuestValues] = useState<Record<string, number>>({});
 
@@ -338,11 +338,12 @@ export default function FBCLMasterpieceApp() {
   const [swissTable, setSwissTable] = useState<SwissTableRow[]>([]);
   const [leagueFinished, setLeagueFinished] = useState<boolean>(false);
 
-  // Dinamik Eleme Turları
+  // Dinamik Eleme Turları & Canlı Eşzamanlı Maç Motoru
   const [bracketMatches, setBracketMatches] = useState<BracketMatch[]>([]);
   const [activeBracketId, setActiveBracketId] = useState<string | null>(null);
   const [bracketLeg, setBracketLeg] = useState<1 | 2>(1);
   const [bracketMatchState, setBracketMatchState] = useState<"IDLE" | "PLAYING" | "EXTRA_TIME" | "PENALTIES" | "FINISHED">("IDLE");
+  const [concurrentBracketLiveScores, setConcurrentBracketLiveScores] = useState<Record<string, { home: number; away: number }>>({});
 
   // Canlı Sıralı Penaltı Durumu
   const [livePenaltyStatus, setLivePenaltyStatus] = useState<{
@@ -420,7 +421,7 @@ export default function FBCLMasterpieceApp() {
     } catch {}
   }, []);
 
-  // HAFTALIK GÖREVLERİN SIFIRLANMASI & YÜKLENMESİ
+  // HAFTALIK GÖREVLERİN HAFTALIK SIFIRLANMASI & YÜKLENMESİ
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -600,6 +601,7 @@ export default function FBCLMasterpieceApp() {
     setAwayLiveGoals(0);
     setLiveGoalScorers([]);
     setLivePenaltyStatus(null);
+    setConcurrentBracketLiveScores({});
   }
 
   function generateRoundOf16Bracket(top8Teams: SwissTableRow[], poWinners: BracketTeam[]) {
@@ -827,7 +829,9 @@ export default function FBCLMasterpieceApp() {
     curM: BracketMatch,
     targetHome: number,
     targetAway: number,
-    intervalMs: number
+    intervalMs: number,
+    otherPlannedMatches: Record<string, { minute: number; isHome: boolean }[]>,
+    otherMatchesFinalResults: Record<string, { home: number; away: number }>
   ) {
     let min = currentMin;
     secondHalfTimerRef.current = setInterval(() => {
@@ -839,10 +843,51 @@ export default function FBCLMasterpieceApp() {
       setHomeLiveGoals(past.filter((e) => e.isHome).length);
       setAwayLiveGoals(past.filter((e) => !e.isHome).length);
 
+      // Eşzamanlı diğer maçların skorlarını güncelle
+      const updatedOtherScores: Record<string, { home: number; away: number }> = {};
+      Object.entries(otherPlannedMatches).forEach(([mId, evts]) => {
+        const eventsUntilNow = evts.filter((e) => e.minute <= min);
+        updatedOtherScores[mId] = {
+          home: eventsUntilNow.filter((e) => e.isHome).length,
+          away: eventsUntilNow.filter((e) => !e.isHome).length,
+        };
+      });
+      setConcurrentBracketLiveScores(updatedOtherScores);
+
       if (min >= 90) {
         if (secondHalfTimerRef.current) clearInterval(secondHalfTimerRef.current as any);
         secondHalfTimerRef.current = null;
         setIsHalftime(false);
+
+        // Diğer maçları kesinleştir
+        setBracketMatches((prev) =>
+          prev.map((m) => {
+            if (m.id === curM.id) return m;
+            const res = otherMatchesFinalResults[m.id];
+            if (!res) return m;
+
+            if (bracketLeg === 1 && m.stage !== "FINAL") {
+              return { ...m, leg1: { homeScore: res.home, awayScore: res.away, played: true } };
+            }
+
+            const outcome = checkLeg2Outcome(m, res.home, res.away);
+            let winId = outcome.winnerId;
+            let winName = outcome.winnerName;
+
+            if (outcome.isDraw) {
+              const hWins = Math.random() > 0.5;
+              winId = hWins ? m.teamHome.id : m.teamAway.id;
+              winName = hWins ? m.teamHome.name : m.teamAway.name;
+            }
+
+            return {
+              ...m,
+              leg2: m.stage !== "FINAL" ? { homeScore: res.home, awayScore: res.away, played: true } : undefined,
+              winnerId: winId,
+              winnerName: winName,
+            };
+          })
+        );
 
         if (bracketLeg === 1 && curM.stage !== "FINAL") {
           setBracketMatchState("FINISHED");
@@ -1505,6 +1550,7 @@ export default function FBCLMasterpieceApp() {
     }
   };
 
+  // EŞZAMANLI CANLI ELEME TURU SİMÜLASYONU
   const playLiveBracketLeg = () => {
     if (bracketMatchState === "PLAYING" || bracketMatchState === "PENALTIES") return;
     clearAllSimTimers();
@@ -1524,6 +1570,7 @@ export default function FBCLMasterpieceApp() {
     const homeTeam = isLeg2 ? curM.teamAway : curM.teamHome;
     const awayTeam = isLeg2 ? curM.teamHome : curM.teamAway;
 
+    // Kullanıcı maçının hedefleri
     const res = calculateMatchGoals(homeTeam.rating, awayTeam.rating);
     const targetHome = res.homeGoals;
     const targetAway = res.awayGoals;
@@ -1549,12 +1596,64 @@ export default function FBCLMasterpieceApp() {
 
     plannedEvents.sort((a, b) => a.minute - b.minute);
 
+    // DİĞER MAÇLARIN EŞZAMANLI DAKİKA DAKİKA HEDEFLERİ
+    const otherMatches = bracketMatches.filter((m) => m.id !== activeBracketId);
+    const otherPlannedMatches: Record<string, { minute: number; isHome: boolean }[]> = {};
+    const otherMatchesFinalResults: Record<string, { home: number; away: number }> = {};
+
+    otherMatches.forEach((om) => {
+      const omHome = isLeg2 && om.stage !== "FINAL" ? om.teamAway : om.teamHome;
+      const omAway = isLeg2 && om.stage !== "FINAL" ? om.teamHome : om.teamAway;
+      const omRes = calculateMatchGoals(omHome.rating, omAway.rating);
+      otherMatchesFinalResults[om.id] = { home: omRes.homeGoals, away: omRes.awayGoals };
+
+      const omEvents: { minute: number; isHome: boolean }[] = [];
+      for (let i = 0; i < omRes.homeGoals; i++) {
+        omEvents.push({ minute: Math.floor(Math.random() * 88) + 2, isHome: true });
+      }
+      for (let i = 0; i < omRes.awayGoals; i++) {
+        omEvents.push({ minute: Math.floor(Math.random() * 88) + 2, isHome: false });
+      }
+      omEvents.sort((a, b) => a.minute - b.minute);
+      otherPlannedMatches[om.id] = omEvents;
+    });
+
     if (simSpeed === 100) {
       instantTimerRef.current = setTimeout(() => {
         setHomeLiveGoals(targetHome);
         setAwayLiveGoals(targetAway);
         setLiveGoalScorers(plannedEvents);
         setBracketMatchState("FINISHED");
+
+        // Diğer maçları hemen bitir
+        setBracketMatches((prev) =>
+          prev.map((m) => {
+            if (m.id === curM.id) return m;
+            const finalOtherRes = otherMatchesFinalResults[m.id];
+            if (!finalOtherRes) return m;
+
+            if (bracketLeg === 1 && m.stage !== "FINAL") {
+              return { ...m, leg1: { homeScore: finalOtherRes.home, awayScore: finalOtherRes.away, played: true } };
+            }
+
+            const outcome = checkLeg2Outcome(m, finalOtherRes.home, finalOtherRes.away);
+            let winId = outcome.winnerId;
+            let winName = outcome.winnerName;
+
+            if (outcome.isDraw) {
+              const hWins = Math.random() > 0.5;
+              winId = hWins ? m.teamHome.id : m.teamAway.id;
+              winName = hWins ? m.teamHome.name : m.teamAway.name;
+            }
+
+            return {
+              ...m,
+              leg2: m.stage !== "FINAL" ? { homeScore: finalOtherRes.home, awayScore: finalOtherRes.away, played: true } : undefined,
+              winnerId: winId,
+              winnerName: winName,
+            };
+          })
+        );
 
         if (curM.stage === "FINAL" || bracketLeg === 2) {
           const outcome = checkLeg2Outcome(curM, targetHome, targetAway);
@@ -1579,6 +1678,17 @@ export default function FBCLMasterpieceApp() {
       min += 1;
       setMatchMin(min);
 
+      // Diğer maçların o anki canlı skorlarını güncelle
+      const currentOtherLiveScores: Record<string, { home: number; away: number }> = {};
+      Object.entries(otherPlannedMatches).forEach(([mId, evts]) => {
+        const eventsUntilNow = evts.filter((e) => e.minute <= min);
+        currentOtherLiveScores[mId] = {
+          home: eventsUntilNow.filter((e) => e.isHome).length,
+          away: eventsUntilNow.filter((e) => !e.isHome).length,
+        };
+      });
+      setConcurrentBracketLiveScores(currentOtherLiveScores);
+
       if (min === 45) {
         if (timerRef.current) clearInterval(timerRef.current);
         timerRef.current = null;
@@ -1587,7 +1697,7 @@ export default function FBCLMasterpieceApp() {
 
         secondHalfTimerRef.current = setTimeout(() => {
           setIsHalftime(false);
-          resumeBracketSecondHalf(min, plannedEvents, curM, targetHome, targetAway, intervalMs);
+          resumeBracketSecondHalf(min, plannedEvents, curM, targetHome, targetAway, intervalMs, otherPlannedMatches, otherMatchesFinalResults);
         }, halftimeWaitMs);
         return;
       }
@@ -1783,27 +1893,33 @@ export default function FBCLMasterpieceApp() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
               type="button"
               onClick={() => setIsDuelModalOpen(true)}
-              className="px-2.5 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-red-950 border-red-500 text-red-300 hover:bg-red-900 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
+              className="p-1.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-red-950 border-red-500 text-red-300 hover:bg-red-900 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
+              title="Arena"
             >
-              ⚔️ Arena
+              <span>⚔️</span>
+              <span className="hidden sm:inline">Arena</span>
             </button>
             <button
               type="button"
               onClick={() => setIsQuestsModalOpen(true)}
-              className="px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-emerald-300 hover:border-emerald-400"
+              className="p-1.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-emerald-300 hover:border-emerald-400 flex items-center gap-1"
+              title="Görevler"
             >
-              🎯 Görevler
+              <span>🎯</span>
+              <span className="hidden sm:inline">Görevler</span>
             </button>
             <button
               type="button"
               onClick={() => setIsStatsModalOpen(true)}
-              className="px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-yellow-300 hover:border-yellow-400"
+              className="p-1.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-yellow-300 hover:border-yellow-400 flex items-center gap-1"
+              title="Kariyer"
             >
-              📊 Kariyer
+              <span>📊</span>
+              <span className="hidden sm:inline">Kariyer</span>
             </button>
             <button
               type="button"
@@ -1811,18 +1927,22 @@ export default function FBCLMasterpieceApp() {
                 fetchGlobalLeaderboard();
                 setIsLeaderboardOpen(true);
               }}
-              className="px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-cyan-300 hover:border-cyan-400"
+              className="p-1.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-slate-900 border-slate-700 text-cyan-300 hover:border-cyan-400 flex items-center gap-1"
+              title="Kürsü"
             >
-              👑 Kürsü
+              <span>👑</span>
+              <span className="hidden sm:inline">Kürsü</span>
             </button>
             <button
               type="button"
               onClick={() => safeAudio.toggleUcl(setUclAudioActive)}
-              className={`px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border transition-all ${
+              className={`p-1.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-black border transition-all flex items-center gap-1 ${
                 uclAudioActive ? "bg-cyan-950 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(0,240,255,0.7)]" : "bg-slate-900 border-slate-750 text-slate-400"
               }`}
+              title="Marş"
             >
-              {uclAudioActive ? "🔊 Marş" : "🔇 Marş"}
+              <span>{uclAudioActive ? "🔊" : "🔇"}</span>
+              <span className="hidden sm:inline">Marş</span>
             </button>
           </div>
         </header>
@@ -2060,7 +2180,7 @@ export default function FBCLMasterpieceApp() {
   }
 
   // =================================================================
-  // EKRAN 2: DRAFT EKRANI (9 TAKTİK SEÇİCİ PANEL GERİ GETİRİLDİ)
+  // EKRAN 2: DRAFT EKRANI (KOMPAKT HEADER BUTONLARI & 9 TAKTİK PANELİ)
   // =================================================================
   return (
     <div className="min-h-[100dvh] bg-[#000028] text-white flex flex-col justify-between p-2 sm:p-4 select-none font-sans relative overflow-x-hidden">
@@ -2071,62 +2191,80 @@ export default function FBCLMasterpieceApp() {
         </div>
       </div>
 
+      {/* HEADER: KESİNTİSİZ SIĞAN KOMPAKT BUTONLAR */}
       <header className="w-full max-w-2xl mx-auto flex items-center justify-between border-b border-cyan-500/30 pb-1.5 mb-1.5 shrink-0">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <button
             type="button"
             onClick={() => setCurrentScreen("LANDING")}
-            className="bg-[#00003c] border border-cyan-400 p-1 rounded-lg"
+            className="bg-[#00003c] border border-cyan-400 p-1 rounded-lg shrink-0"
           >
-            <OfficialFBCrest className="w-6 h-6" />
+            <OfficialFBCrest className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
-          <div>
-            <h1 className="text-xs font-black text-white flex items-center gap-1 uppercase">
-              UCL <span className="text-[9px] bg-cyan-500 text-slate-950 px-1 py-0.2 rounded font-black">{managerName}</span>
+          <div className="min-w-0">
+            <h1 className="text-xs font-black text-white flex items-center gap-1 uppercase truncate">
+              UCL <span className="text-[8.5px] bg-cyan-500 text-slate-950 px-1 rounded font-black truncate">{managerName}</span>
             </h1>
-            <span className="text-[8.5px] text-cyan-300 font-bold">ALBÜM: %{albumPercentage}</span>
+            <span className="text-[8px] text-cyan-300 font-bold block truncate">ALBÜM: %{albumPercentage}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Sağ Taraf: Mobilde Kompakt İkonlar, Genişte Tam İsimler */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsDuelModalOpen(true)}
-            className="px-2 py-1 rounded-lg text-[10px] font-black bg-red-950 border border-red-500 text-red-300 hover:bg-red-900"
+            className="p-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] font-black bg-red-950 border border-red-500 text-red-300 hover:bg-red-900 flex items-center gap-1"
+            title="Kadıköy Arena"
           >
-            ⚔️ Arena
+            <span>⚔️</span>
+            <span className="hidden sm:inline">Arena</span>
           </button>
 
           <button
             type="button"
             onClick={() => setMemoryMode((m) => !m)}
-            className={`px-2 py-1 rounded-lg text-[10px] font-black border transition-all ${
+            className={`p-1 sm:px-2 sm:py-1 rounded-lg text-[10px] font-black border transition-all flex items-center gap-1 ${
               memoryMode ? "bg-purple-950 border-purple-400 text-purple-300" : "bg-slate-900 border-slate-750 text-slate-400"
             }`}
+            title="Hafıza Modu"
           >
-            🧠 {memoryMode ? "Açık" : "Kapalı"}
+            <span>🧠</span>
+            <span className="hidden sm:inline">{memoryMode ? "Açık" : "Kapalı"}</span>
           </button>
 
           <button
             type="button"
             onClick={() => safeAudio.toggleFb(setFbAudioActive)}
-            className={`px-2 py-1 rounded-lg text-[10px] font-black border transition-all ${
-              fbAudioActive ? "bg-yellow-950 border-yellow-400 text-yellow-300" : "bg-slate-900 border-slate-750 text-slate-400"
+            className={`p-1 sm:px-2 sm:py-1 rounded-lg text-[10px] font-black border transition-all flex items-center gap-1 ${
+              fbAudioActive ? "bg-yellow-950 border-yellow-400 text-yellow-300 shadow-[0_0_10px_rgba(254,241,0,0.6)]" : "bg-slate-900 border-slate-750 text-slate-400"
             }`}
+            title="Fenerbahçe Marşı"
           >
-            🎺 FB
+            <span>🎺</span>
+            <span className="hidden sm:inline">FB</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => safeAudio.toggleUcl(setUclAudioActive)}
+            className={`p-1 sm:px-2 sm:py-1 rounded-lg text-[10px] font-black border transition-all flex items-center gap-1 ${
+              uclAudioActive ? "bg-cyan-950 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(0,240,255,0.6)]" : "bg-slate-900 border-slate-750 text-slate-400"
+            }`}
+            title="UCL Marşı"
+          >
+            <span>🎵</span>
+            <span className="hidden sm:inline">UCL</span>
           </button>
 
           <div className="bg-[#00003c] border border-cyan-400/50 px-2 py-0.5 rounded-lg text-center shrink-0">
-            <span className="text-[7.5px] text-cyan-300 block font-bold leading-none">OVR</span>
-            <span className="text-sm font-black text-yellow-400 leading-none">{memoryMode ? "??.?" : teamOvr}</span>
+            <span className="text-[7px] text-cyan-300 block font-bold leading-none">OVR</span>
+            <span className="text-xs sm:text-sm font-black text-yellow-400 leading-none">{memoryMode ? "?" : teamOvr}</span>
           </div>
         </div>
       </header>
 
-      {/* ============================================================= */}
-      {/* 9 DİZİLİŞ SEÇİCİ: ESKİ ZENGİN PANELİ (3 ZİHNİYET + 9 KART)    */}
-      {/* ============================================================= */}
+      {/* 9 DİZİLİŞ SEÇİCİ PANEL (3 ZİHNİYET + 9 KART) */}
       <div className="w-full max-w-2xl mx-auto bg-[#030922] border border-cyan-900/60 rounded-xl p-2 sm:p-2.5 mb-2 shadow-xl shrink-0">
         <div className="flex justify-between items-center mb-1.5 pb-1 border-b border-blue-950">
           <span className="text-[10px] sm:text-[11px] font-black tracking-wider text-cyan-400 uppercase flex items-center gap-1.5">
@@ -2159,7 +2297,6 @@ export default function FBCLMasterpieceApp() {
           </div>
         </div>
 
-        {/* Seçilen Zihniyete Ait 3 Formasyon Kartı */}
         <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
           {FORMATIONS.filter((f) => f.mentality === selectedMentality).map((form) => {
             const isActive = form.id === activeFormation.id;
@@ -2246,7 +2383,7 @@ export default function FBCLMasterpieceApp() {
         })}
       </div>
 
-      {/* OYUNCU İŞARETLENDİĞİNDE BELİREN VAZGEÇ/DEĞİŞTİR BARI */}
+      {/* VAZGEÇ / BAŞKASINI SEÇ ŞERİDİ */}
       {selectedPlayer && (
         <div className="w-full max-w-2xl mx-auto bg-[#001f54]/95 border-2 border-yellow-400 p-2 rounded-xl mt-1.5 flex items-center justify-between shadow-[0_0_15px_rgba(254,241,0,0.4)] animate-in slide-in-from-bottom duration-200 shrink-0">
           <div className="flex items-center gap-2">
@@ -2417,7 +2554,7 @@ export default function FBCLMasterpieceApp() {
         </div>
       )}
 
-      {/* SEZON ZARI ANİMASYONU */}
+      {/* SEZON ZARI */}
       {isRolling && (
         <FastSnappyWheelModal
           seasons={EXTENDED_SEASONS_DATA}
@@ -2629,7 +2766,7 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
-            {/* Skor Paneli */}
+            {/* Skor Paneli - Taşmayan Duyarlı Takım İsimleri */}
             {!leagueFinished && fixtures[currentFixtureIndex] && (
               <div className="bg-[#000020] border-y-2 border-cyan-400 py-2.5 px-3 rounded-xl mb-2.5 shadow-xl shrink-0">
                 {(() => {
@@ -2648,30 +2785,40 @@ export default function FBCLMasterpieceApp() {
 
                   return (
                     <div>
-                      <div className="flex items-center justify-between gap-1">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <ClubLogo club={homeClub} className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
-                          <div className="truncate">
-                            <span className="text-xs sm:text-sm font-black text-white block truncate">{homeName}</span>
-                            <span className="text-[9px] text-cyan-300 font-bold block truncate">({memoryMode ? "?" : homeRating})</span>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-1 min-w-0">
+                          <ClubLogo club={homeClub} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] sm:text-sm font-black text-white block truncate leading-tight">
+                              <span className="xs:hidden">{homeClub.shortName || homeName}</span>
+                              <span className="hidden xs:inline">{homeName}</span>
+                            </span>
+                            <span className="text-[8px] sm:text-[9px] text-cyan-300 font-bold block truncate leading-none mt-0.5">
+                              ({memoryMode ? "?" : homeRating} GÜÇ)
+                            </span>
                           </div>
                         </div>
 
-                        <div className="bg-[#00003c] px-3 py-1 rounded-xl border border-cyan-400 flex items-center gap-2 shrink-0">
-                          <span className="text-xl sm:text-2xl font-black text-white">{homeLiveGoals}</span>
-                          <span className="text-cyan-500 font-bold">-</span>
-                          <span className="text-xl sm:text-2xl font-black text-white">{awayLiveGoals}</span>
-                          <span className="text-[9.5px] font-black text-cyan-400 border-l border-blue-900 pl-2">
+                        <div className="bg-[#00003c] px-2.5 py-1 sm:px-4 sm:py-1.5 rounded-xl border border-cyan-400 flex items-center gap-1.5 sm:gap-2.5 shrink-0 shadow-[0_0_15px_rgba(0,240,255,0.3)]">
+                          <span className="text-lg sm:text-2xl font-black text-white tabular-nums">{homeLiveGoals}</span>
+                          <span className="text-cyan-500 font-bold text-sm sm:text-lg">-</span>
+                          <span className="text-lg sm:text-2xl font-black text-white tabular-nums">{awayLiveGoals}</span>
+                          <span className="text-[8.5px] sm:text-[9.5px] font-black text-cyan-400 border-l border-blue-900 pl-1.5 sm:pl-2">
                             {isHalftime ? "DVR" : matchState === "PLAYING" ? `${matchMin}'` : matchState === "FINISHED" ? "BİTTİ" : "0'"}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
-                          <div className="truncate">
-                            <span className="text-xs sm:text-sm font-black text-white block truncate">{awayName}</span>
-                            <span className="text-[9px] text-cyan-300 font-bold block truncate">({memoryMode ? "?" : awayRating})</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-1 min-w-0 justify-end text-right">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] sm:text-sm font-black text-white block truncate leading-tight">
+                              <span className="xs:hidden">{awayClub.shortName || awayName}</span>
+                              <span className="hidden xs:inline">{awayName}</span>
+                            </span>
+                            <span className="text-[8px] sm:text-[9px] text-cyan-300 font-bold block truncate leading-none mt-0.5">
+                              ({memoryMode ? "?" : awayRating} GÜÇ)
+                            </span>
                           </div>
-                          <ClubLogo club={awayClub} className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+                          <ClubLogo club={awayClub} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
                         </div>
                       </div>
 
@@ -2814,7 +2961,7 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 5: ELEME TURLARI VE BRACKET MAÇ EKRANI                   */}
+      {/* EKRAN 5: ELEME TURLARI (CANLI ÇOKLU MAÇ SİMÜLASYONU)            */}
       {/* ============================================================= */}
       {currentScreen === "BRACKET" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
@@ -2835,27 +2982,56 @@ export default function FBCLMasterpieceApp() {
               </button>
             </div>
 
-            {/* Skor Paneli */}
+            {/* Canlı Skor Paneli - Taşmayan İsimler */}
             {activeBracketMatch && activeBracketHome && activeBracketAway && (
-              <div className="bg-[#000020] border-y-2 border-cyan-400 py-2.5 px-3 rounded-xl mb-2.5 shadow-xl shrink-0">
-                <div className="flex items-center justify-between gap-1">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <ClubLogo club={activeBracketHome} className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
-                    <span className="text-xs sm:text-sm font-black text-white truncate">{activeBracketHome.name}</span>
+              <div className="bg-[#000020] border-y-2 border-cyan-400 py-2.5 px-3 rounded-xl mb-2 shadow-xl shrink-0">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 sm:gap-2.5 flex-1 min-w-0">
+                    <ClubLogo club={activeBracketHome} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[11px] sm:text-sm font-black text-white block truncate leading-tight">
+                        <span className="xs:hidden">{activeBracketHome.shortName || activeBracketHome.name}</span>
+                        <span className="hidden xs:inline">{activeBracketHome.name}</span>
+                      </span>
+                      <span className="text-[8px] sm:text-[9px] text-cyan-300 font-bold block truncate leading-none mt-0.5">
+                        ({memoryMode ? "?" : activeBracketHome.rating} GÜÇ)
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="bg-[#00003c] px-3 py-1 rounded-xl border border-cyan-400 flex items-center gap-2 shrink-0">
-                    <span className="text-xl sm:text-2xl font-black text-white">{homeLiveGoals}</span>
-                    <span className="text-cyan-500 font-bold">-</span>
-                    <span className="text-xl sm:text-2xl font-black text-white">{awayLiveGoals}</span>
-                    <span className="text-[9.5px] font-black text-cyan-400 border-l border-blue-900 pl-2">
+                  <div className="bg-[#00003c] px-2.5 py-1 sm:px-4 sm:py-1.5 rounded-xl border border-cyan-400 flex items-center gap-1.5 sm:gap-2.5 shrink-0 shadow-[0_0_15px_rgba(0,240,255,0.3)]">
+                    <span className="text-lg sm:text-2xl font-black text-white tabular-nums">{homeLiveGoals}</span>
+                    <span className="text-cyan-500 font-bold text-sm sm:text-lg">-</span>
+                    <span className="text-lg sm:text-2xl font-black text-white tabular-nums">{awayLiveGoals}</span>
+                    <span className="text-[8.5px] sm:text-[9.5px] font-black text-cyan-400 border-l border-blue-900 pl-1.5 sm:pl-2">
                       {bracketMatchState === "PENALTIES" ? "PEN" : bracketMatchState === "PLAYING" ? `${matchMin}'` : bracketMatchState === "FINISHED" ? "BİTTİ" : "0'"}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-1 min-w-0 justify-end text-right">
-                    <span className="text-xs sm:text-sm font-black text-white truncate">{activeBracketAway.name}</span>
-                    <ClubLogo club={activeBracketAway} className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+                  <div className="flex items-center gap-1.5 sm:gap-2.5 flex-1 min-w-0 justify-end text-right">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[11px] sm:text-sm font-black text-white block truncate leading-tight">
+                        <span className="xs:hidden">{activeBracketAway.shortName || activeBracketAway.name}</span>
+                        <span className="hidden xs:inline">{activeBracketAway.name}</span>
+                      </span>
+                      <span className="text-[8px] sm:text-[9px] text-cyan-300 font-bold block truncate leading-none mt-0.5">
+                        ({memoryMode ? "?" : activeBracketAway.rating} GÜÇ)
+                      </span>
+                    </div>
+                    <ClubLogo club={activeBracketAway} className="w-6 h-6 sm:w-8 sm:h-8 shrink-0" />
+                  </div>
+                </div>
+
+                <div className="mt-1 pt-1 border-t border-blue-900/50 flex justify-between text-[10px] min-h-[16px]">
+                  <div className="text-yellow-400 font-bold truncate mr-2">
+                    {liveGoalScorers.filter((s) => s.isHome).map((s, i) => (
+                      <span key={i} className="mr-1.5">⚽ {s.minute}' {s.name}</span>
+                    ))}
+                  </div>
+                  <div className="text-cyan-300 font-medium text-right truncate">
+                    {liveGoalScorers.filter((s) => !s.isHome).map((s, i) => (
+                      <span key={i} className="ml-1.5">⚽ {s.minute}' {s.name}</span>
+                    ))}
                   </div>
                 </div>
 
@@ -2867,27 +3043,70 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
+            {/* DİĞER MAÇLARIN CANLI SKOR BANDI */}
+            {bracketMatchState === "PLAYING" && Object.keys(concurrentBracketLiveScores).length > 0 && (
+              <div className="bg-[#000020] border border-cyan-900/50 p-1.5 rounded-lg mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none text-[10px] text-slate-300 shrink-0">
+                <span className="text-cyan-400 font-bold shrink-0">⚡ CANLI ELEME SKORLARI:</span>
+                {bracketMatches
+                  .filter((m) => m.id !== activeBracketId)
+                  .map((om) => {
+                    const lScore = concurrentBracketLiveScores[om.id] || { home: 0, away: 0 };
+                    return (
+                      <span key={om.id} className="flex items-center gap-1 shrink-0 bg-slate-950 px-2 py-0.5 rounded border border-blue-950">
+                        <span>{om.teamHome.shortName || om.teamHome.name}</span>
+                        <strong className="text-white">{lScore.home}-{lScore.away}</strong>
+                        <span>{om.teamAway.shortName || om.teamAway.name}</span>
+                      </span>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Tur Eşleşme Kartları (Canlı Skorlarla Güncellenir) */}
             <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 pr-0.5">
-              {bracketMatches.map((m) => (
-                <div
-                  key={m.id}
-                  className={`p-2 rounded-xl border text-[11px] flex flex-col justify-between ${
-                    m.isUserMatch ? "bg-blue-950 border-cyan-400 ring-1 ring-cyan-400" : "bg-slate-900/60 border-slate-800"
-                  }`}
-                >
-                  <div className="space-y-1 font-bold">
-                    <div className="flex justify-between items-center">
-                      <span className={m.teamHome.isUser ? "text-yellow-400 truncate" : "truncate"}>{m.teamHome.name}</span>
-                      <span>{m.leg1.played ? m.leg1.homeScore : "-"} {m.leg2?.played ? `(${m.leg2.awayScore})` : ""}</span>
+              {bracketMatches.map((m) => {
+                const liveOther = concurrentBracketLiveScores[m.id];
+                const isPlayingLiveOther = bracketMatchState === "PLAYING" && m.id !== activeBracketId && liveOther;
+
+                return (
+                  <div
+                    key={m.id}
+                    className={`p-2 rounded-xl border text-[11px] flex flex-col justify-between ${
+                      m.isUserMatch ? "bg-blue-950 border-cyan-400 ring-1 ring-cyan-400" : "bg-slate-900/60 border-slate-800"
+                    }`}
+                  >
+                    <div className="space-y-1 font-bold">
+                      <div className="flex justify-between items-center">
+                        <span className={m.teamHome.isUser ? "text-yellow-400 truncate" : "truncate"}>
+                          {m.teamHome.shortName || m.teamHome.name}
+                        </span>
+                        <span className="tabular-nums">
+                          {isPlayingLiveOther
+                            ? `${liveOther.home}*`
+                            : m.leg1.played
+                            ? m.leg1.homeScore
+                            : "-"}
+                          {m.leg2?.played ? ` (${m.leg2.awayScore})` : ""}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className={m.teamAway.isUser ? "text-yellow-400 truncate" : "truncate"}>
+                          {m.teamAway.shortName || m.teamAway.name}
+                        </span>
+                        <span className="tabular-nums">
+                          {isPlayingLiveOther
+                            ? `${liveOther.away}*`
+                            : m.leg1.played
+                            ? m.leg1.awayScore
+                            : "-"}
+                          {m.leg2?.played ? ` (${m.leg2.homeScore})` : ""}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className={m.teamAway.isUser ? "text-yellow-400 truncate" : "truncate"}>{m.teamAway.name}</span>
-                      <span>{m.leg1.played ? m.leg1.awayScore : "-"} {m.leg2?.played ? `(${m.leg2.homeScore})` : ""}</span>
-                    </div>
+                    {m.winnerName && <span className="text-[9px] text-emerald-400 mt-1 font-black">Geçti: {m.winnerName}</span>}
                   </div>
-                  {m.winnerName && <span className="text-[9px] text-emerald-400 mt-1 font-black">Geçti: {m.winnerName}</span>}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="pt-2 border-t border-cyan-500/20 flex justify-end shrink-0">
@@ -2942,7 +3161,7 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 6: SEZON SONU ÖZETİ (ZENGİN ANALİZ & 11 KİŞİLİK TABLO)  */}
+      {/* EKRAN 6: SEZON SONU ÖZETİ                                     */}
       {/* ============================================================= */}
       {currentScreen === "SUMMARY" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3 overflow-y-auto">
