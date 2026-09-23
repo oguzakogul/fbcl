@@ -50,10 +50,10 @@ function getWeeklyQuests(): QuestItem[] {
   const weekId = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
   
   const pool: Omit<QuestItem, "completed">[] = [
-    { id: "q1", title: "Avrupa Fatihi", desc: "Bir turnuvada ulaştığın en yüksek galibiyet sayısı.", target: 5, progressKey: "tournamentWins" },
-    { id: "q2", title: "Bombardıman", desc: "Bir turnuvada ulaştığın en yüksek toplam gol sayısı.", target: 12, progressKey: "tournamentGoals" },
+    { id: "q1", title: "Avrupa Fatihi", desc: "Bu hafta tek turnuvada ulaştığın en yüksek galibiyet.", target: 5, progressKey: "tournamentWins" },
+    { id: "q2", title: "Bombardıman", desc: "Bu hafta tek turnuvada ulaştığın en yüksek toplam gol.", target: 12, progressKey: "tournamentGoals" },
     { id: "q3", title: "Müziği Duy", desc: "UEFA Şampiyonlar Ligi kupasını müzene götür.", target: 1, progressKey: "trophies" },
-    { id: "q4", title: "Çelik Defans", desc: "Bir turnuvada ulaştığın gol yememe (Clean Sheet) sayısı.", target: 3, progressKey: "cleanSheets" }
+    { id: "q4", title: "Çelik Defans", desc: "Bu hafta tek turnuvada gol yemediğin (Clean Sheet) maç sayısı.", target: 3, progressKey: "cleanSheets" }
   ];
 
   const index = weekId % pool.length;
@@ -420,6 +420,7 @@ export default function FBCLMasterpieceApp() {
     } catch {}
   }, []);
 
+  // HAFTALIK GÖREVLERİN SIFIRLANMASI & YÜKLENMESİ
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -433,15 +434,26 @@ export default function FBCLMasterpieceApp() {
       if (sPicked) setPickedPlayersCount(JSON.parse(sPicked));
       const sHof = localStorage.getItem("fb_ucl_hall_of_fame");
       if (sHof) setHallOfFame(JSON.parse(sHof));
-      const sBestQuests = localStorage.getItem("fb_ucl_best_quest_values");
-      if (sBestQuests) setBestQuestValues(JSON.parse(sBestQuests));
+
+      const now = new Date();
+      const currentWeekId = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
+      const savedWeekId = localStorage.getItem("fb_ucl_quest_week_id");
+
+      if (!savedWeekId || parseInt(savedWeekId, 10) !== currentWeekId) {
+        const freshBestValues = { tournamentWins: 0, tournamentGoals: 0, trophies: 0, cleanSheets: 0 };
+        setBestQuestValues(freshBestValues);
+        localStorage.setItem("fb_ucl_best_quest_values", JSON.stringify(freshBestValues));
+        localStorage.setItem("fb_ucl_quest_week_id", currentWeekId.toString());
+      } else {
+        const sBestQuests = localStorage.getItem("fb_ucl_best_quest_values");
+        if (sBestQuests) setBestQuestValues(JSON.parse(sBestQuests));
+      }
     } catch {}
 
     setWeeklyQuests(getWeeklyQuests());
     fetchGlobalLeaderboard();
   }, [fetchGlobalLeaderboard]);
 
-  // Turnuva Zirve Değerleri Hesabı (Düzeltildi: Clean Sheet oppScore kontrolü)
   const currentTurnWins = fixtures.filter((f) => f.played && (f.fbScore ?? 0) > (f.oppScore ?? 0)).length + bracketMatches.filter((m) => m.winnerId === "fb").length;
   const currentTurnGoals = Object.values(playerGoalCounts).reduce((a, b) => a + b, 0);
   const currentTurnTrophy = tournamentWinner === "Fenerbahçe SK" || campaignTrophy === "Şampiyon" ? 1 : 0;
@@ -513,14 +525,6 @@ export default function FBCLMasterpieceApp() {
     return Math.min(100, Math.round((distinctPicked / 306) * 100));
   }, [pickedPlayersCount]);
 
-  const mostPickedList = useMemo(() => {
-    return Object.entries(pickedPlayersCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [pickedPlayersCount]);
-
-  const careerTopScorers = useMemo(() => {
-    return Object.entries(allTimeScorers).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [allTimeScorers]);
-
   const gmb = useMemo(() => {
     if (careerStats.matchesPlayed === 0) return "0.00";
     return (careerStats.goalsScored / careerStats.matchesPlayed).toFixed(2);
@@ -577,7 +581,6 @@ export default function FBCLMasterpieceApp() {
     return `${opponentClubName || "Rakip"} Yıldızı`;
   }
 
-  // Düzeltme 1: Skor tablosunu sıfırlayan yardımcı
   const resetMatchBoard = useCallback(() => {
     clearAllSimTimers();
     setMatchMin(0);
@@ -1097,7 +1100,23 @@ export default function FBCLMasterpieceApp() {
 
   const generateSquadShareCode = useCallback(() => {
     const active = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
-    if (active.length < 11) return "";
+    if (active.length < 11) {
+      if (hallOfFame.length > 0) {
+        const lastHof = hallOfFame[0];
+        const compactData: DuelOpponentSquad = {
+          managerName: managerName || "Kadıköy Fatihi",
+          formationName: lastHof.formationName,
+          teamOvr: lastHof.ovr,
+          players: lastHof.lineupList,
+        };
+        try {
+          return btoa(unescape(encodeURIComponent(JSON.stringify(compactData))));
+        } catch {
+          return "";
+        }
+      }
+      return "";
+    }
     const compactData: DuelOpponentSquad = {
       managerName: managerName || "Kadıköy Fatihi",
       formationName: activeFormation.name,
@@ -1113,7 +1132,7 @@ export default function FBCLMasterpieceApp() {
     } catch {
       return "";
     }
-  }, [lineup, activeFormation.name, rawTeamOvr, managerName]);
+  }, [lineup, activeFormation.name, rawTeamOvr, managerName, hallOfFame]);
 
   const handlePlayDuel = () => {
     if (!duelInputCode.trim()) return;
@@ -1121,12 +1140,12 @@ export default function FBCLMasterpieceApp() {
       const jsonStr = decodeURIComponent(escape(atob(duelInputCode.trim())));
       const oppData: DuelOpponentSquad = JSON.parse(jsonStr);
 
-      const res = calculateMatchGoals(rawTeamOvr, oppData.teamOvr, 1.05, 0.95);
+      const res = calculateMatchGoals(rawTeamOvr || 82, oppData.teamOvr, 1.05, 0.95);
       const activeFb = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
 
       const uScorers: string[] = [];
       for (let i = 0; i < res.homeGoals; i++) {
-        uScorers.push(pickRealisticFbScorer(activeFb));
+        uScorers.push(activeFb.length > 0 ? pickRealisticFbScorer(activeFb) : "Alex de Souza");
       }
 
       const oScorers: string[] = [];
@@ -1205,10 +1224,19 @@ export default function FBCLMasterpieceApp() {
     setDraftedNames((prev) => [...prev, selectedPlayer.name]);
     setSelectedPlayer(null);
     setCurrentSeason(null);
-    setIsDrawerOpen(false); // Oyuncu yerleştirildiğinde çekmece anında kapanır
+    setIsDrawerOpen(false);
 
     if (Object.values(newLineup).filter(Boolean).length === 11) {
       recordDraftCompletion(newLineup);
+    }
+  };
+
+  const handleRemoveDraftedSlot = (slotId: string) => {
+    const item = lineup[slotId];
+    if (!item) return;
+    if (window.confirm(`${item.player.name} oyuncusunu kadrodan çıkarmak istiyor musun?`)) {
+      setLineup((prev) => ({ ...prev, [slotId]: null }));
+      setDraftedNames((prev) => prev.filter((n) => n !== item.player.name));
     }
   };
 
@@ -1319,7 +1347,6 @@ export default function FBCLMasterpieceApp() {
     setFlashingName("Kura Çekimi Tamamlandı");
   };
 
-  // Tek tıkla maç simülasyonu başlatıcı
   const playFixtureAtIndex = useCallback((fixIndex: number) => {
     if (fixIndex >= fixtures.length) return;
     clearAllSimTimers();
@@ -1395,7 +1422,6 @@ export default function FBCLMasterpieceApp() {
     }, intervalMs);
   }, [fixtures, rawTeamOvr, activeFormation, lineup, leagueFullSchedule, simSpeed, clearAllSimTimers, resetMatchBoard]);
 
-  // Düzeltme 2: Çift tıklamayı kaldıran "Sonraki Maçı Oyna" fonksiyonu
   const proceedAndPlayNextFixture = () => {
     if (currentFixtureIndex + 1 >= fixtures.length) return;
     const nextIdx = currentFixtureIndex + 1;
@@ -1404,7 +1430,6 @@ export default function FBCLMasterpieceApp() {
     playFixtureAtIndex(nextIdx);
   };
 
-  // Düzeltme: İlk 8'e girildiğinde doğrudan Son 16'ya geçiş motoru
   const setupRealUclBracket = () => {
     const sorted = [...swissTable].sort((a, b) => b.points - a.points || b.gd - a.gd || b.gf - a.gf);
     const top8 = sorted.slice(0, 8);
@@ -1417,22 +1442,21 @@ export default function FBCLMasterpieceApp() {
       const poWinners: BracketTeam[] = [];
 
       for (let i = 0; i < 8; i++) {
-  const t1 = poTeams[15 - i];
-  const t2 = poTeams[i];
-  const sim = calculateMatchGoals(t1.rating, t2.rating);
-  const winner = sim.homeGoals >= sim.awayGoals ? t1 : t2;
+        const t1 = poTeams[15 - i];
+        const t2 = poTeams[i];
+        const sim = calculateMatchGoals(t1.rating, t2.rating);
+        const winner = sim.homeGoals >= sim.awayGoals ? t1 : t2;
 
-  poWinners.push({
-    id: winner.id,
-    name: winner.id === "fb" ? "Fenerbahçe SK" : winner.name,
-    shortName: winner.shortName,
-    country: winner.country,
-    rating: winner.id === "fb" ? rawTeamOvr : winner.rating,
-    logoUrl: winner.logoUrl,
-    isUser: winner.id === "fb",
-  });
-}
-
+        poWinners.push({
+          id: winner.id,
+          name: winner.id === "fb" ? "Fenerbahçe SK" : winner.name,
+          shortName: winner.shortName,
+          country: winner.country,
+          rating: winner.id === "fb" ? rawTeamOvr : winner.rating,
+          logoUrl: winner.logoUrl,
+          isUser: winner.id === "fb",
+        });
+      }
 
       generateRoundOf16Bracket(top8, poWinners);
     } else {
@@ -1718,12 +1742,9 @@ export default function FBCLMasterpieceApp() {
     setCurrentScreen("LANDING");
   };
 
-  // Şeref Kürsüsü Filtrelemesi (Haftalık / Günlük)
   const filteredLeaderboard = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    
-    // Pazartesi başlangıcı
     const day = now.getDay();
     const diffToMonday = (day === 0 ? -6 : 1) - day;
     const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
@@ -1763,6 +1784,13 @@ export default function FBCLMasterpieceApp() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setIsDuelModalOpen(true)}
+              className="px-2.5 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-black border bg-red-950 border-red-500 text-red-300 hover:bg-red-900 transition-all flex items-center gap-1 shadow-[0_0_10px_rgba(239,68,68,0.4)]"
+            >
+              ⚔️ Arena
+            </button>
             <button
               type="button"
               onClick={() => setIsQuestsModalOpen(true)}
@@ -1877,7 +1905,10 @@ export default function FBCLMasterpieceApp() {
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3">
             <div className="w-full max-w-md bg-[#00003c] border-2 border-emerald-400/70 rounded-2xl p-4 shadow-2xl flex flex-col text-left">
               <div className="flex justify-between items-center border-b border-emerald-500/30 pb-2 mb-3">
-                <span className="text-sm font-black text-emerald-400 uppercase">🎯 Kadıköy Haftalık Hedefleri</span>
+                <div>
+                  <span className="text-sm font-black text-emerald-400 uppercase block">🎯 Kadıköy Haftalık Hedefleri</span>
+                  <span className="text-[10px] text-slate-400">Pazartesi 00:00'da otomatik sıfırlanır</span>
+                </div>
                 <button type="button" onClick={() => setIsQuestsModalOpen(false)} className="text-slate-400 hover:text-white font-bold">✕</button>
               </div>
 
@@ -1960,7 +1991,7 @@ export default function FBCLMasterpieceApp() {
           </div>
         )}
 
-        {/* MODAL: ŞEREF KÜRSÜSÜ (HAFTALIK / GÜNLÜK FİLTRELİ) */}
+        {/* MODAL: ŞEREF KÜRSÜSÜ */}
         {isLeaderboardOpen && (
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3">
             <div className="w-full max-w-lg bg-[#00003c] border-2 border-cyan-400/70 rounded-2xl p-4 shadow-2xl flex flex-col max-h-[85vh] overflow-y-auto text-left">
@@ -1972,7 +2003,6 @@ export default function FBCLMasterpieceApp() {
                 <button type="button" onClick={() => setIsLeaderboardOpen(false)} className="text-slate-400 hover:text-white font-bold">✕</button>
               </div>
 
-              {/* Günlük & Haftalık Sekmeler */}
               <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 gap-1 mb-3">
                 <button
                   type="button"
@@ -1981,7 +2011,7 @@ export default function FBCLMasterpieceApp() {
                     leaderboardTab === "WEEKLY" ? "bg-cyan-500 text-slate-950" : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  📅 Bu Hafta (Sıfırlanır)
+                  📅 Bu Hafta
                 </button>
                 <button
                   type="button"
@@ -2030,19 +2060,18 @@ export default function FBCLMasterpieceApp() {
   }
 
   // =================================================================
-  // EKRAN 2: HERO SAHA + KAYAR ALT ÇEKMECE (DRAFT EKRANI)
+  // EKRAN 2: DRAFT EKRANI (9 TAKTİK SEÇİCİ PANEL GERİ GETİRİLDİ)
   // =================================================================
   return (
-    <div className="h-[100dvh] max-h-[100dvh] bg-[#000028] text-white flex flex-col justify-between p-2 select-none font-sans relative overflow-hidden">
-      {/* ÜST BİLGİ VE HABER BARI */}
-      <div className="w-full max-w-xl mx-auto shrink-0 mb-1">
+    <div className="min-h-[100dvh] bg-[#000028] text-white flex flex-col justify-between p-2 sm:p-4 select-none font-sans relative overflow-x-hidden">
+      <div className="w-full max-w-2xl mx-auto shrink-0 mb-1">
         <div className="bg-[#000030]/80 border border-cyan-500/30 rounded-lg px-2 py-0.5 flex items-center gap-1.5 overflow-hidden">
           <span className="bg-red-600 text-white text-[7.5px] font-black px-1 rounded animate-pulse shrink-0">HABER</span>
           <p className="text-[10px] text-cyan-200 font-bold truncate">{tickerEvents[tickerIndex]}</p>
         </div>
       </div>
 
-      <header className="w-full max-w-xl mx-auto flex items-center justify-between border-b border-cyan-500/30 pb-1.5 mb-1 shrink-0">
+      <header className="w-full max-w-2xl mx-auto flex items-center justify-between border-b border-cyan-500/30 pb-1.5 mb-1.5 shrink-0">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -2060,15 +2089,13 @@ export default function FBCLMasterpieceApp() {
         </div>
 
         <div className="flex items-center gap-1">
-          {filledCount === 11 && (
-            <button
-              type="button"
-              onClick={() => setIsDuelModalOpen(true)}
-              className="px-2 py-1 rounded-lg text-[10px] font-black bg-red-950 border border-red-500 text-red-300"
-            >
-              ⚔️ Düello
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsDuelModalOpen(true)}
+            className="px-2 py-1 rounded-lg text-[10px] font-black bg-red-950 border border-red-500 text-red-300 hover:bg-red-900"
+          >
+            ⚔️ Arena
+          </button>
 
           <button
             type="button"
@@ -2097,36 +2124,72 @@ export default function FBCLMasterpieceApp() {
         </div>
       </header>
 
-      {/* DİZİLİŞ ŞERİDİ */}
-      <div className="w-full max-w-xl mx-auto flex items-center justify-between bg-[#030922] border border-cyan-900/60 rounded-xl px-2 py-1 mb-1 shrink-0">
-        <span className="text-[10px] font-black text-cyan-400 uppercase flex items-center gap-1">
-          <OfficialUCLLogo className="w-3.5 h-3.5" /> {activeFormation.name}
-        </span>
+      {/* ============================================================= */}
+      {/* 9 DİZİLİŞ SEÇİCİ: ESKİ ZENGİN PANELİ (3 ZİHNİYET + 9 KART)    */}
+      {/* ============================================================= */}
+      <div className="w-full max-w-2xl mx-auto bg-[#030922] border border-cyan-900/60 rounded-xl p-2 sm:p-2.5 mb-2 shadow-xl shrink-0">
+        <div className="flex justify-between items-center mb-1.5 pb-1 border-b border-blue-950">
+          <span className="text-[10px] sm:text-[11px] font-black tracking-wider text-cyan-400 uppercase flex items-center gap-1.5">
+            <OfficialUCLLogo className="w-3.5 h-3.5" /> DİZİLİŞ & TAKTİK DÜZEN
+          </span>
 
-        <div className="flex gap-1 overflow-x-auto">
-          {FORMATIONS.map((form) => (
-            <button
-              key={form.id}
-              type="button"
-              onClick={() => handleFormationChange(form)}
-              className={`px-2 py-0.5 rounded-lg text-[9px] font-black transition-all shrink-0 ${
-                activeFormation.id === form.id ? "bg-cyan-500 text-slate-950 font-black" : "bg-slate-900 text-slate-400"
-              }`}
-            >
-              {form.name}
-            </button>
-          ))}
+          <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800 gap-1">
+            {(["DEFENSIVE", "BALANCED", "ATTACKING"] as const).map((men) => (
+              <button
+                key={men}
+                type="button"
+                onClick={() => {
+                  setSelectedMentality(men);
+                  const first = FORMATIONS.find((f) => f.mentality === men);
+                  if (first) handleFormationChange(first);
+                }}
+                className={`px-2 sm:px-2.5 py-0.5 rounded text-[9.5px] sm:text-[10px] font-black transition-all ${
+                  selectedMentality === men
+                    ? men === "DEFENSIVE"
+                      ? "bg-cyan-600 text-white shadow-md"
+                      : men === "BALANCED"
+                      ? "bg-amber-500 text-slate-950 shadow-md"
+                      : "bg-red-600 text-white shadow-md"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {men === "DEFENSIVE" ? "Defans" : men === "BALANCED" ? "Dengeli" : "Hücum"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Seçilen Zihniyete Ait 3 Formasyon Kartı */}
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+          {FORMATIONS.filter((f) => f.mentality === selectedMentality).map((form) => {
+            const isActive = form.id === activeFormation.id;
+            return (
+              <button
+                key={form.id}
+                type="button"
+                onClick={() => handleFormationChange(form)}
+                className={`p-1.5 sm:p-2 rounded-xl text-left border transition-all ${
+                  isActive
+                    ? "bg-[#001f54] border-[#00f0ff] shadow-[0_0_12px_rgba(0,240,255,0.4)] scale-[1.01]"
+                    : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+                }`}
+              >
+                <div className="text-[10.5px] sm:text-xs font-black text-yellow-400 truncate">{form.name}</div>
+                <div className="text-[8px] sm:text-[9px] text-slate-400 mt-0.5 line-clamp-1">{form.description}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* 1. HERO SAHA: TAM BOY VE FERAH (EKRANI KAPLAYAN ALAN) */}
-      <div className="relative w-full max-w-xl mx-auto flex-1 bg-gradient-to-b from-[#082a1a] via-[#0e462a] to-[#082a1a] rounded-2xl border-2 border-white/20 shadow-2xl overflow-hidden select-none">
+      {/* HERO SAHA */}
+      <div className="relative w-full max-w-2xl mx-auto h-[400px] xs:h-[440px] sm:h-[480px] bg-gradient-to-b from-[#082a1a] via-[#0e462a] to-[#082a1a] rounded-2xl border-2 border-white/20 shadow-2xl overflow-hidden select-none">
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
-          <div className="w-36 h-12 border-b-2 border-x-2 border-white/20 mx-auto rounded-b-xl" />
+          <div className="w-36 sm:w-44 h-12 sm:h-14 border-b-2 border-x-2 border-white/20 mx-auto rounded-b-xl" />
           <div className="w-full border-t-2 border-white/20 flex items-center justify-center">
-            <div className="w-24 h-24 -my-12 rounded-full border-2 border-white/20" />
+            <div className="w-24 sm:w-28 h-24 sm:h-28 -my-12 sm:-my-14 rounded-full border-2 border-white/20" />
           </div>
-          <div className="w-36 h-12 border-t-2 border-x-2 border-white/20 mx-auto rounded-t-xl" />
+          <div className="w-36 sm:w-44 h-12 sm:h-14 border-t-2 border-x-2 border-white/20 mx-auto rounded-t-xl" />
         </div>
 
         {activeFormation.slots.map((slot) => {
@@ -2142,14 +2205,21 @@ export default function FBCLMasterpieceApp() {
               <button
                 type="button"
                 disabled={!isPulsing && !item}
-                onClick={() => handlePlacePlayer(slot)}
+                onClick={() => {
+                  if (item) {
+                    handleRemoveDraftedSlot(slot.id);
+                  } else if (isPulsing) {
+                    handlePlacePlayer(slot);
+                  }
+                }}
                 className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center border-2 transition-all duration-200 relative overflow-hidden ${
                   item
-                    ? "bg-[#002d72] border-[#fef100] shadow-[0_0_15px_rgba(254,241,0,0.35)]"
+                    ? "bg-[#002d72] border-[#fef100] shadow-[0_0_15px_rgba(254,241,0,0.35)] cursor-pointer active:scale-95"
                     : isPulsing
                     ? "bg-cyan-500/50 border-cyan-300 animate-pulse scale-110 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.9)]"
                     : "bg-emerald-950/70 border-white/25 opacity-55 cursor-not-allowed"
                 }`}
+                title={item ? "Kadrodan Çıkarmak İçin Dokun" : slot.label}
               >
                 {item ? (
                   <div className="flex flex-col items-center justify-center w-full h-full relative">
@@ -2176,8 +2246,28 @@ export default function FBCLMasterpieceApp() {
         })}
       </div>
 
-      {/* ALT KONTROL BARI (PARMAK HİZASI) */}
-      <div className="w-full max-w-xl mx-auto flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-cyan-500/20 shrink-0">
+      {/* OYUNCU İŞARETLENDİĞİNDE BELİREN VAZGEÇ/DEĞİŞTİR BARI */}
+      {selectedPlayer && (
+        <div className="w-full max-w-2xl mx-auto bg-[#001f54]/95 border-2 border-yellow-400 p-2 rounded-xl mt-1.5 flex items-center justify-between shadow-[0_0_15px_rgba(254,241,0,0.4)] animate-in slide-in-from-bottom duration-200 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-400 font-black text-xs">⚽ {selectedPlayer.name} ({selectedPlayer.fifaRating})</span>
+            <span className="text-[9.5px] text-cyan-300">Yeşil yanan slota dokun</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedPlayer(null);
+              setIsDrawerOpen(true);
+            }}
+            className="bg-red-600 hover:bg-red-500 text-white font-black text-[10px] px-2.5 py-1 rounded-lg active:scale-95"
+          >
+            Vazgeç / Başkasını Seç ✕
+          </button>
+        </div>
+      )}
+
+      {/* ALT KONTROL BARI */}
+      <div className="w-full max-w-2xl mx-auto flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-cyan-500/20 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -2223,11 +2313,10 @@ export default function FBCLMasterpieceApp() {
         )}
       </div>
 
-      {/* 2. KAYAR ALT ÇEKMECE (BOTTOM SHEET MODAL) */}
+      {/* OYUNCU ÇEKMECESİ */}
       {isDrawerOpen && currentSeason && (
         <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm flex flex-col justify-end animate-in fade-in duration-200">
-          <div className="w-full max-w-xl mx-auto bg-[#00003c] border-t-2 border-yellow-400 rounded-t-3xl p-3 shadow-2xl flex flex-col max-h-[62vh] animate-in slide-in-from-bottom duration-300">
-            {/* Çekmece Başlığı ve Sezon Kartı */}
+          <div className="w-full max-w-2xl mx-auto bg-[#00003c] border-t-2 border-yellow-400 rounded-t-3xl p-3 shadow-2xl flex flex-col max-h-[62vh] animate-in slide-in-from-bottom duration-300">
             <div className="flex justify-between items-center border-b border-blue-950 pb-2 mb-2">
               <div className="flex items-center gap-2">
                 <RetroFenerbahceKit colors={currentSeason.kitColors} className="w-8 h-8" />
@@ -2263,7 +2352,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
-            {/* Mevki Sekmeleri */}
             <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-750 text-[9.5px] font-bold overflow-x-auto mb-2 shrink-0">
               {(["ALL", "DEF", "MID", "AMC", "ATT", "GK"] as const).map((tab) => (
                 <button
@@ -2279,7 +2367,6 @@ export default function FBCLMasterpieceApp() {
               ))}
             </div>
 
-            {/* Oyuncu Kartları Listesi */}
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 overflow-y-auto pr-0.5 flex-1">
               {currentSeason.players
                 .filter((p) => {
@@ -2303,7 +2390,6 @@ export default function FBCLMasterpieceApp() {
                       disabled={!isSelectable}
                       onClick={() => {
                         setSelectedPlayer(isSelected ? null : player);
-                        // Seçildiği anda çekmeceyi küçültüp sahayı göster
                         setIsDrawerOpen(false);
                       }}
                       className={`p-2 rounded-xl border text-left flex flex-col justify-between transition-all ${
@@ -2338,17 +2424,17 @@ export default function FBCLMasterpieceApp() {
           onFinish={(season) => {
             setCurrentSeason(season);
             setIsRolling(false);
-            setIsDrawerOpen(true); // Zar bitince çekmeceyi otomatik aç
+            setIsDrawerOpen(true);
           }}
         />
       )}
 
-      {/* MODAL: DÜELLO */}
+      {/* MODAL: KADIKÖY ARENA */}
       {isDuelModalOpen && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3">
           <div className="w-full max-w-md bg-[#00003c] border-2 border-red-500/70 rounded-2xl p-4 shadow-2xl flex flex-col text-left">
             <div className="flex justify-between items-center border-b border-red-500/30 pb-2 mb-3">
-              <span className="text-sm font-black text-red-400 uppercase">⚔️ Kadıköy Düellosu</span>
+              <span className="text-sm font-black text-red-400 uppercase">⚔️ Kadıköy Arena Düellosu</span>
               <button type="button" onClick={() => { setIsDuelModalOpen(false); setDuelResult(null); }} className="text-slate-400 hover:text-white font-bold">✕</button>
             </div>
 
@@ -2358,17 +2444,18 @@ export default function FBCLMasterpieceApp() {
                 <input
                   type="text"
                   readOnly
-                  value={generateSquadShareCode()}
+                  value={generateSquadShareCode() || "Önce 11 kişilik kadro kurun ya da turnuva tamamlayın"}
                   className="w-full bg-slate-900 border border-slate-700 px-2 py-1 rounded text-xs text-yellow-300 font-mono select-all truncate"
                 />
                 <button
                   type="button"
+                  disabled={!generateSquadShareCode()}
                   onClick={() => {
                     navigator.clipboard.writeText(generateSquadShareCode());
                     setCopiedCodeNotice(true);
                     setTimeout(() => setCopiedCodeNotice(false), 2000);
                   }}
-                  className="bg-yellow-400 text-slate-950 font-black px-2.5 py-1 rounded text-xs shrink-0"
+                  className="bg-yellow-400 text-slate-950 font-black px-2.5 py-1 rounded text-xs shrink-0 disabled:opacity-30"
                 >
                   {copiedCodeNotice ? "Tamam!" : "Kopyala"}
                 </button>
@@ -2376,20 +2463,20 @@ export default function FBCLMasterpieceApp() {
             </div>
 
             <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 mb-2.5">
-              <span className="text-[10px] font-bold text-slate-300 block mb-1">🎮 Arkadaşının Kadro Kodu:</span>
+              <span className="text-[10px] font-bold text-slate-300 block mb-1">🎮 Arkadaşının Kadro Kodunu Yapıştır:</span>
               <textarea
                 value={duelInputCode}
                 onChange={(e) => setDuelInputCode(e.target.value)}
-                placeholder="Kodu buraya yapıştır..."
+                placeholder="Arkadaşının paylaştığı kodu buraya yapıştır..."
                 rows={2}
                 className="w-full bg-slate-900 border border-slate-700 p-1.5 rounded text-xs text-white font-mono mb-2"
               />
               <button
                 type="button"
                 onClick={handlePlayDuel}
-                className="w-full bg-gradient-to-r from-red-600 to-amber-600 text-white font-black py-2 rounded-xl text-xs"
+                className="w-full bg-gradient-to-r from-red-600 to-amber-600 text-white font-black py-2 rounded-xl text-xs uppercase tracking-wider"
               >
-                Kapış ➔
+                Kadıköy'de Kapış ➔
               </button>
             </div>
 
@@ -2404,6 +2491,19 @@ export default function FBCLMasterpieceApp() {
                   <div>
                     <span className="text-xs font-bold text-white block">{duelResult.oppManager}</span>
                     <span className="text-2xl font-black text-yellow-400">{duelResult.oppScore}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-[10px] border-t border-slate-800 pt-1.5 mt-2">
+                  <div className="text-yellow-300">
+                    {duelResult.userScorers.map((s, i) => (
+                      <div key={i}>⚽ {s}</div>
+                    ))}
+                  </div>
+                  <div className="text-red-300 text-right">
+                    {duelResult.oppScorers.map((s, i) => (
+                      <div key={i}>⚽ {s}</div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2486,7 +2586,7 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 4: İSVİÇRE LİGİ VE CANLI MAÇ (DÜZELTİLDİ: SIFIRLANAN SKOR) */}
+      {/* EKRAN 4: İSVİÇRE LİGİ VE CANLI MAÇ                            */}
       {/* ============================================================= */}
       {currentScreen === "LEAGUE" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
@@ -2593,7 +2693,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
-            {/* Fikstür ve Puan Durumu Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 flex-1 overflow-y-auto mb-2 pr-0.5">
               <div className="border border-cyan-900/60 rounded-xl p-2 bg-slate-950/50 max-h-52 overflow-y-auto">
                 <span className="text-[10px] font-black text-cyan-300 mb-1 block">FİKSTÜR</span>
@@ -2657,7 +2756,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
-            {/* Düzeltme 2: Tek tıkla sonraki maçı oyna butonu */}
             <div className="pt-2 border-t border-cyan-500/20 flex justify-end shrink-0">
               {!leagueFinished ? (
                 matchState === "FINISHED" ? (
@@ -2769,7 +2867,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
-            {/* Maç Kartları */}
             <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 pr-0.5">
               {bracketMatches.map((m) => (
                 <div
@@ -2845,68 +2942,112 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 6: SEZON SONU ÖZETİ (SUMMARY CARD)                       */}
+      {/* EKRAN 6: SEZON SONU ÖZETİ (ZENGİN ANALİZ & 11 KİŞİLİK TABLO)  */}
       {/* ============================================================= */}
       {currentScreen === "SUMMARY" && (
-        <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
-          <div className="w-full max-w-sm bg-gradient-to-b from-[#002d72] via-[#00003c] to-[#01091a] border-2 border-yellow-400 rounded-2xl p-4 text-center shadow-2xl flex flex-col items-center my-auto max-h-[92dvh] overflow-y-auto">
-            <OfficialFBCrest className="w-16 h-16 mb-1 drop-shadow-[0_0_15px_rgba(254,241,0,0.6)]" />
+        <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3 overflow-y-auto">
+          <div className="w-full max-w-md bg-gradient-to-b from-[#002d72] via-[#00003c] to-[#01091a] border-2 border-yellow-400 rounded-3xl p-4 sm:p-5 text-center shadow-2xl flex flex-col items-center my-auto max-h-[92dvh] overflow-y-auto">
+            <div className="flex items-center justify-between w-full mb-1">
+              <OfficialUCLLogo className="w-6 h-6" />
+              <span className="text-[10px] text-cyan-300 font-black">2026-27 UEFA CHAMPIONS LEAGUE</span>
+              <OfficialFBCrest className="w-6 h-6" />
+            </div>
 
-            <h2 className="text-lg font-black text-white uppercase tracking-wider">FENERBAHÇE SK</h2>
-            <p className="text-[11px] text-yellow-300 font-bold mb-2">Menajer: {managerName}</p>
+            <h2 className="text-xl font-black text-white uppercase tracking-wider mt-1">FENERBAHÇE SK</h2>
+            <p className="text-xs text-yellow-300 font-bold mb-2">Teknik Direktör: {managerName}</p>
 
-            <div className="w-full bg-slate-950/85 border border-yellow-500/40 rounded-xl p-3 mb-2.5 text-left space-y-1.5 text-xs">
-              <div className="flex justify-between items-center pb-1 border-b border-blue-950">
-                <span className="text-slate-400">Sonuç:</span>
-                <span className="font-black text-yellow-400">{campaignTrophy}</span>
+            <div className="w-full bg-slate-950/90 border border-yellow-500/40 rounded-2xl p-3 mb-2.5 text-left space-y-2 text-xs">
+              <div className="flex justify-between items-center pb-1.5 border-b border-blue-950">
+                <span className="text-slate-400 font-bold">Turnuva Derecesi:</span>
+                <span className="font-black text-yellow-400 text-sm">{campaignTrophy}</span>
               </div>
 
               {tournamentWinner && (
-                <div className="flex justify-between items-center pb-1 border-b border-blue-950">
-                  <span className="text-slate-400">Turnuva Şampiyonu:</span>
-                  <span className="font-black text-emerald-400">🏆 {tournamentWinner}</span>
+                <div className="flex justify-between items-center pb-1.5 border-b border-blue-950">
+                  <span className="text-slate-400 font-bold">Turnuva Şampiyonu:</span>
+                  <span className="font-black text-emerald-400 text-xs">🏆 {tournamentWinner}</span>
                 </div>
               )}
 
               <div className="flex justify-between items-center">
-                <span className="text-slate-400">Kadro Gücü:</span>
+                <span className="text-slate-400 font-bold">Kadro Gücü:</span>
                 <span className="font-black text-cyan-300">{teamOvr} OVR</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-slate-400">Taktik:</span>
-                <span className="font-bold text-white">{activeFormation.name}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-bold">Taktik Düzen:</span>
+                <span className="font-bold text-white">{activeFormation.name} ({activeFormation.mentalityTitle})</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-slate-400">Lig Sıralaması:</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-bold">Lig Sonu Derecesi:</span>
                 <span className="font-bold text-white">{userRank}. Sıra</span>
               </div>
 
-              <div className="pt-1.5 border-t border-yellow-500/30">
-                <span className="text-yellow-400 font-black block mb-1">⚽ Gol Krallığı</span>
+              {memorableMatch && (
+                <div className="flex justify-between items-center bg-blue-950/60 p-1.5 rounded-lg border border-blue-900">
+                  <span className="text-slate-300 text-[11px] font-bold">Öne Çıkan Maç:</span>
+                  <span className="font-black text-emerald-400 text-[11px]">{memorableMatch.opponent} ({memorableMatch.score})</span>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-blue-950">
+                <span className="text-yellow-400 font-black text-[11px] block mb-1">📋 İLK 11 VE OYUNCU PERFORMANSLARI</span>
+                <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto pr-0.5">
+                  {activeFormation.slots.map((slot) => {
+                    const item = lineup[slot.id];
+                    if (!item) return null;
+                    return (
+                      <div key={slot.id} className="flex justify-between items-center text-[10px] bg-slate-900 px-1.5 py-0.5 rounded border border-blue-900/60">
+                        <span className="text-slate-300 truncate max-w-[100px]">
+                          <strong className="text-yellow-400 mr-1">{slot.label}</strong> {item.player.name}
+                        </span>
+                        <span className="font-black text-cyan-300 shrink-0">{item.effectiveRating}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-yellow-500/30">
+                <span className="text-yellow-400 font-black text-[11px] block mb-1">⚽ TURNUVA GOL KRALLIĞI</span>
                 {topScorersList.length > 0 ? (
-                  <div className="space-y-0.5 max-h-16 overflow-y-auto">
+                  <div className="space-y-1 max-h-20 overflow-y-auto pr-0.5">
                     {topScorersList.slice(0, 3).map(([name, goals], index) => (
-                      <div key={name} className="flex justify-between text-[10.5px]">
-                        <span className="text-white">{index + 1}. {name}</span>
+                      <div key={name} className="flex justify-between items-center text-[10.5px] bg-slate-900/80 px-2 py-0.5 rounded border border-blue-900/40">
+                        <span className="text-white font-bold flex items-center gap-1">
+                          {index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"} {name}
+                        </span>
                         <span className="text-yellow-400 font-black">{goals} Gol</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400 text-[10px]">Gol atılamadı.</span>
+                  <span className="text-slate-400 text-[10px]">Turnuva boyunca gol atılamadı.</span>
                 )}
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleRestartCampaign}
-              className="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-black py-2.5 rounded-xl text-xs uppercase tracking-wider"
-            >
-              Yeni Turnuva
-            </button>
+            <div className="w-full flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(generateSquadShareCode());
+                  alert("Bu kadronun Arena kodu panoya kopyalandı! Arkadaşına meydan okuyabilirsin.");
+                }}
+                className="flex-1 bg-red-950 border border-red-500 text-red-300 hover:bg-red-900 font-black py-2 rounded-xl text-xs active:scale-95 flex items-center justify-center gap-1"
+              >
+                ⚔️ Kadroyu Paylaş
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRestartCampaign}
+                className="flex-1 bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-black py-2 rounded-xl text-xs uppercase tracking-wider active:scale-95 shadow-lg"
+              >
+                Yeni Turnuva ➔
+              </button>
+            </div>
           </div>
         </div>
       )}
