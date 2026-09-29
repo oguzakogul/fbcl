@@ -283,13 +283,11 @@ class SafeAudioEngine {
   public stopAll(cbUcl?: (p: boolean) => void, cbFb?: (p: boolean) => void) {
     if (this.ucl) {
       this.ucl.pause();
-      this.ucl.currentTime = 0;
       this.uclPlaying = false;
       if (cbUcl) cbUcl(false);
     }
     if (this.fb) {
       this.fb.pause();
-      this.fb.currentTime = 0;
       this.fbPlaying = false;
       if (cbFb) cbFb(false);
     }
@@ -408,7 +406,7 @@ function BroadcastScoreboard({
         </div>
       </div>
 
-      {/* Golcüler */}
+      {/* Golcüler Paneli */}
       <div className="mt-3 pt-2.5 border-t border-cyan-500/20 grid grid-cols-2 gap-2 text-[10px] sm:text-[11px] min-h-[30px]">
         <div className="flex flex-col gap-1 pr-1 border-r border-cyan-500/10">
           {homeScorers.length > 0 ? (
@@ -443,25 +441,47 @@ function BroadcastScoreboard({
 }
 
 // =================================================================
-// 5. ANA UYGULAMA BİLEŞENİ
+// 5. DRAMATİK VE SİNEMATİK PENALTI MODAL ARAYÜZÜ (HAYATİ YENİLİK)
+// =================================================================
+interface DramaticPenaltyState {
+  isActive: boolean;
+  homeClub: BracketTeam;
+  awayClub: BracketTeam;
+  homeShots: { scored: boolean; shooter: string }[];
+  awayShots: { scored: boolean; shooter: string }[];
+  homeScore: number;
+  awayScore: number;
+  currentShooterName: string;
+  currentShooterTeam: string;
+  isHomeTurn: boolean;
+  suspenseStage: "APPROACH" | "KICKING" | "RESULT" | "DECIDED";
+  lastResultText: string;
+  isDecided: boolean;
+  winnerName?: string;
+  curM: BracketMatch;
+  finalLegHome: number;
+  finalLegAway: number;
+}
+
+// =================================================================
+// 6. ANA UYGULAMA BİLEŞENİ
 // =================================================================
 export default function FBCLMasterpieceApp() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("LANDING");
   const [memoryMode, setMemoryMode] = useState<boolean>(false);
+  const [hasRolledOnce, setHasRolledOnce] = useState<boolean>(false); // Sezon zarı atıldı mı kilidi
   const [uclAudioActive, setUclAudioActive] = useState<boolean>(false);
   const [fbAudioActive, setFbAudioActive] = useState<boolean>(false);
 
   // Menajer Adı
   const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
 
-  // Canlı Haberler State'i
+  // Haber Akışı State'i
   const [liveNews, setLiveNews] = useState<string[]>([
-    "🟡🔵 Fenerbahçe'de Şampiyonlar Ligi kampı için geri sayım başladı! Kadıköy'de heyecan dorukta.",
-    "⚡ UEFA'dan Fenerbahçe'nin yeni kadro yapılanmasına büyük övgü: 'Avrupa'nın en dinamik kadrosu!'",
-    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi: 'Hedef bu kez kulübe kupayı getirmek.'",
-    "⭐ Alex de Souza'dan açıklama: 'Kadıköy gecelerindeki bu kadro kulüp tarihine geçecek güçte.'",
-    "🧤 Kaleci eldivenlerinde muazzam form: Devler Ligi'nde geçit vermeyen savunma hazır!",
-    "🚀 Haftalık Kadıköy Hedefleri güncellendi: Maçları kazan, rozetleri topla ve kürsüye çık!"
+    "🟡🔵 Kadıköy'de Şampiyonlar Ligi rüzgarı esiyor! Hedef Avrupa zirvesi.",
+    "⚡ UEFA'dan Fenerbahçe kadrosuna övgü dolu analiz: 'Efsaneler sahada!'",
+    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi!",
+    "⭐ Alex de Souza'dan mesaj: 'Bu arma her zaman en büyüktür.'"
   ]);
   const [tickerIndex, setTickerIndex] = useState<number>(0);
 
@@ -514,23 +534,14 @@ export default function FBCLMasterpieceApp() {
   const [bracketMatchState, setBracketMatchState] = useState<"IDLE" | "PLAYING" | "EXTRA_TIME" | "PENALTIES" | "FINISHED">("IDLE");
   const [concurrentBracketLiveScores, setConcurrentBracketLiveScores] = useState<Record<string, { home: number; away: number }>>({});
 
-  // Canlı Sıralı Penaltı Durumu
-  const [livePenaltyStatus, setLivePenaltyStatus] = useState<{
-    round: number;
-    homeShooter: string;
-    homeScored?: boolean;
-    awayShooter: string;
-    awayScored?: boolean;
-    homeShots: PenaltyShot[];
-    awayShots: PenaltyShot[];
-    text: string;
-  } | null>(null);
+  // YENİ: Sinematik ve Gerilimli Penaltı State'i
+  const [dramaticPenalties, setDramaticPenalties] = useState<DramaticPenaltyState | null>(null);
 
   // Sezon Sonu & Turnuva Galibi
   const [campaignTrophy, setCampaignTrophy] = useState<string>("Lig Aşaması");
   const [tournamentWinner, setTournamentWinner] = useState<string | null>(null);
 
-  // Topluluk, Kalıcı Veri (Supabase)
+  // Kariyer & Supabase Verileri
   const [careerStats, setCareerStats] = useState<UserCareerStats>({
     matchesPlayed: 0,
     wins: 0,
@@ -557,17 +568,52 @@ export default function FBCLMasterpieceApp() {
   const [duelResult, setDuelResult] = useState<{ userScore: number; oppScore: number; userScorers: string[]; oppScorers: string[]; oppManager: string } | null>(null);
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
-  // CANLI FENERBAHÇE HABERLERİNİ /api/fb-news RÖLESİNDEN ÇEK
+  // =================================================================
+  // ÇİFTE KORUMALI GOOGLE NEWS ÇEKİCİ (ASLA BOŞ KALMAZ)
+  // =================================================================
   useEffect(() => {
-    fetch("/api/fb-news")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.news && data.news.length > 0) {
-          const formatted = data.news.map((item: string) => `🟡🔵 ${item}`);
-          setLiveNews(formatted);
+    let isMounted = true;
+
+    async function loadFenerbahceNews() {
+      // 1. Önce yerel Next.js /api/fb-news rotasını dene
+      try {
+        const localRes = await fetch("/api/fb-news");
+        if (localRes.ok) {
+          const data = await localRes.json();
+          if (data?.news && Array.isArray(data.news) && data.news.length > 0) {
+            if (isMounted) {
+              setLiveNews(data.news.map((n: string) => `🟡🔵 ${n}`));
+              return;
+            }
+          }
         }
-      })
-      .catch(() => {});
+      } catch {}
+
+      // 2. Yerel API rota dosyan yoksa veya Vercel'de IP kısıtı varsa doğrudan RSS2JSON köprüsüyle çek
+      try {
+        const targetRss = encodeURIComponent("https://news.google.com/rss/search?q=Fenerbahçe+futbol&hl=tr&gl=TR&ceid=TR:tr");
+        const bridgeRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${targetRss}`);
+        if (bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json();
+          if (bridgeData?.items && bridgeData.items.length > 0) {
+            const parsed = bridgeData.items.slice(0, 10).map((it: any) => {
+              let cleanTitle = it.title || "";
+              cleanTitle = cleanTitle.replace(/\s*-\s*[^-]+$/, "").trim(); // Sondaki "- Fanatik" vb. kaynak adını temizler
+              return `🟡🔵 ${cleanTitle}`;
+            });
+            if (isMounted && parsed.length > 0) {
+              setLiveNews(parsed);
+              return;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    loadFenerbahceNews();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Haber kaydırma sayacı
@@ -579,7 +625,7 @@ export default function FBCLMasterpieceApp() {
     return () => clearInterval(tickerInterval);
   }, [liveNews.length]);
 
-  // Safari / iOS ses kilidi açıcı
+  // Safari/iOS ses kilidi
   useEffect(() => {
     const handleUnlockInteraction = () => {
       safeAudio.unlockAudio();
@@ -668,9 +714,9 @@ export default function FBCLMasterpieceApp() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondHalfTimerRef = useRef<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | null>(null);
   const drawIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const penaltyIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extraTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const instantTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const penaltyStepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearAllSimTimers = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -680,9 +726,9 @@ export default function FBCLMasterpieceApp() {
       secondHalfTimerRef.current = null;
     }
     if (drawIntervalRef.current) { clearInterval(drawIntervalRef.current); drawIntervalRef.current = null; }
-    if (penaltyIntervalRef.current) { clearInterval(penaltyIntervalRef.current); penaltyIntervalRef.current = null; }
     if (extraTimerRef.current) { clearInterval(extraTimerRef.current); extraTimerRef.current = null; }
     if (instantTimerRef.current) { clearTimeout(instantTimerRef.current); instantTimerRef.current = null; }
+    if (penaltyStepTimeoutRef.current) { clearTimeout(penaltyStepTimeoutRef.current); penaltyStepTimeoutRef.current = null; }
   }, []);
 
   useEffect(() => {
@@ -821,8 +867,8 @@ export default function FBCLMasterpieceApp() {
     setHomeLiveGoals(0);
     setAwayLiveGoals(0);
     setLiveGoalScorers([]);
-    setLivePenaltyStatus(null);
     setConcurrentBracketLiveScores({});
+    setDramaticPenalties(null);
   }
 
   function generateRoundOf16Bracket(top8Teams: SwissTableRow[], poWinners: BracketTeam[]) {
@@ -922,7 +968,10 @@ export default function FBCLMasterpieceApp() {
     );
   }
 
-  function runAutomatedPenaltyShootout(curM: BracketMatch, finalLegHome: number, finalLegAway: number) {
+  // =================================================================
+  // NEFES KESEN SİNEMATİK PENALTI MOTORU
+  // =================================================================
+  const startDramaticPenaltyShootout = (curM: BracketMatch, finalLegHome: number, finalLegAway: number) => {
     setBracketMatchState("PENALTIES");
 
     const homeClub = bracketLeg === 2 && curM.stage !== "FINAL" ? curM.teamAway : curM.teamHome;
@@ -931,81 +980,164 @@ export default function FBCLMasterpieceApp() {
     const activeFb = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
     const fbPenPool = activeFb.length > 0 ? activeFb.map((i) => i.player.name) : ["Alex de Souza", "Pierre van Hooijdonk", "Elvir Boliç", "Tuncay Şanlı", "Moussa Sow"];
 
-    const getShooterName = (isUser: boolean, clubId: string, clubName: string, idx: number) => {
-      if (isUser) return fbPenPool[idx % fbPenPool.length];
+    const getShooter = (isUser: boolean, clubId: string, clubName: string, roundIdx: number) => {
+      if (isUser) return fbPenPool[roundIdx % fbPenPool.length];
       return getOpponentScorer(clubId, clubName);
     };
 
-    let round = 0;
-    let homeScore = 0;
-    let awayScore = 0;
-    const homeShots: PenaltyShot[] = [];
-    const awayShots: PenaltyShot[] = [];
+    const initialHomeShooter = getShooter(homeClub.isUser, homeClub.id, homeClub.name, 0);
 
-    const penaltyIntervalMs = Math.max(400, Math.floor(1200 / simSpeed));
+    const initialPenState: DramaticPenaltyState = {
+      isActive: true,
+      homeClub,
+      awayClub,
+      homeShots: [],
+      awayShots: [],
+      homeScore: 0,
+      awayScore: 0,
+      currentShooterName: initialHomeShooter,
+      currentShooterTeam: homeClub.name,
+      isHomeTurn: true,
+      suspenseStage: "APPROACH",
+      lastResultText: `1. Penaltı: ${initialHomeShooter} topun başına geçiyor...`,
+      isDecided: false,
+      curM,
+      finalLegHome,
+      finalLegAway,
+    };
 
-    penaltyIntervalRef.current = setInterval(() => {
-      round += 1;
+    setDramaticPenalties(initialPenState);
 
-      const hShooter = getShooterName(homeClub.isUser, homeClub.id, homeClub.name, round - 1);
-      const hScored = Math.random() < 0.78;
-      if (hScored) homeScore++;
-      homeShots.push({ shooter: hShooter, scored: hScored });
+    // Adım adım gerilimli vuruş simülatörü
+    executePenaltyStep(initialPenState, fbPenPool);
+  };
 
-      const aShooter = getShooterName(awayClub.isUser, awayClub.id, awayClub.name, round - 1);
-      const aScored = Math.random() < 0.76;
-      if (aScored) awayScore++;
-      awayShots.push({ shooter: aShooter, scored: aScored });
+  const executePenaltyStep = (state: DramaticPenaltyState, fbPenPool: string[]) => {
+    const delaySpeed = simSpeed === 100 ? 50 : Math.max(300, Math.floor(1300 / simSpeed));
 
-      setLivePenaltyStatus({
-        round,
-        homeShooter: hShooter,
-        homeScored: hScored,
-        awayShooter: aShooter,
-        awayScored: aScored,
-        homeShots: [...homeShots],
-        awayShots: [...awayShots],
-        text: `Tur ${round}: ${homeClub.shortName || homeClub.name} (${homeScore}) - ${awayClub.shortName || awayClub.name} (${awayScore})`,
-      });
+    // Faz 1: Gergin Bekleyiş
+    penaltyStepTimeoutRef.current = setTimeout(() => {
+      setDramaticPenalties((prev) => (prev ? { ...prev, suspenseStage: "KICKING", lastResultText: `${prev.currentShooterName} derin bir nefes aldı ve vuruşunu yaptı...` } : null));
 
-      let isDecided = false;
-      let winnerId = "";
-      let winnerName = "";
+      // Faz 2: Şutun Sonucu
+      penaltyStepTimeoutRef.current = setTimeout(() => {
+        const isUserKick = state.isHomeTurn ? state.homeClub.isUser : state.awayClub.isUser;
+        const kickAccuracy = isUserKick ? 0.78 : 0.74;
+        const isGoal = Math.random() < kickAccuracy;
 
-      if (round >= 5) {
-        if (homeScore !== awayScore) {
-          isDecided = true;
-          winnerId = homeScore > awayScore ? homeClub.id : awayClub.id;
-          winnerName = homeScore > awayScore ? homeClub.name : awayClub.name;
+        const updatedHomeShots = [...state.homeShots];
+        const updatedAwayShots = [...state.awayShots];
+        let updatedHomeScore = state.homeScore;
+        let updatedAwayScore = state.awayScore;
+
+        if (state.isHomeTurn) {
+          updatedHomeShots.push({ scored: isGoal, shooter: state.currentShooterName });
+          if (isGoal) updatedHomeScore++;
+        } else {
+          updatedAwayShots.push({ scored: isGoal, shooter: state.currentShooterName });
+          if (isGoal) updatedAwayScore++;
         }
-      }
 
-      if (isDecided || round >= 8) {
-        if (penaltyIntervalRef.current) clearInterval(penaltyIntervalRef.current);
-        penaltyIntervalRef.current = null;
+        const resultWord = isGoal ? "GOOOL! Ağları havalandırdı!" : "KAÇTI! Kaleci köşeyi bildi!";
 
-        if (!winnerId) {
-          winnerId = homeScore >= awayScore ? homeClub.id : awayClub.id;
-          winnerName = homeScore >= awayScore ? homeClub.name : awayClub.name;
+        // Matematiksel Galibiyet Kontrolü
+        const roundsDone = Math.max(updatedHomeShots.length, updatedAwayShots.length);
+        const homeRemaining = Math.max(0, 5 - updatedHomeShots.length);
+        const awayRemaining = Math.max(0, 5 - updatedAwayShots.length);
+
+        let winnerDecided = false;
+        let decidedWinnerClub: BracketTeam | null = null;
+
+        // İlk 5 tur içi erken bitiş
+        if (updatedHomeShots.length <= 5 && updatedAwayShots.length <= 5) {
+          if (updatedHomeScore > updatedAwayScore + awayRemaining) {
+            winnerDecided = true;
+            decidedWinnerClub = state.homeClub;
+          } else if (updatedAwayScore > updatedHomeScore + homeRemaining) {
+            winnerDecided = true;
+            decidedWinnerClub = state.awayClub;
+          }
         }
 
-        setBracketMatchState("FINISHED");
-        setBracketMatches((prev) =>
-          prev.map((m) => {
-            if (m.id !== curM.id) return m;
-            return {
-              ...m,
-              leg2: m.stage !== "FINAL" ? { homeScore: finalLegHome, awayScore: finalLegAway, played: true } : undefined,
-              extraTime: true,
-              penalties: { homePens: homeScore, awayPens: awayScore, homeShots, awayShots },
-              winnerId,
-              winnerName,
-            };
-          })
-        );
-      }
-    }, penaltyIntervalMs);
-  }
+        // 5 tur eşit bittikten sonra seri penaltılar
+        if (!winnerDecided && updatedHomeShots.length >= 5 && updatedAwayShots.length === updatedHomeShots.length) {
+          if (updatedHomeScore !== updatedAwayScore) {
+            winnerDecided = true;
+            decidedWinnerClub = updatedHomeScore > updatedAwayScore ? state.homeClub : state.awayClub;
+          }
+        }
+
+        // Güvenlik tavanı: 10'ar penaltıdan sonra rastgelelik
+        if (!winnerDecided && roundsDone >= 10 && updatedHomeShots.length === updatedAwayShots.length) {
+          winnerDecided = true;
+          decidedWinnerClub = state.homeClub;
+        }
+
+        if (winnerDecided && decidedWinnerClub) {
+          if (decidedWinnerClub.isUser) {
+            confetti({ particleCount: 300, spread: 100, origin: { y: 0.6 } });
+          }
+
+          const decidedState: DramaticPenaltyState = {
+            ...state,
+            homeShots: updatedHomeShots,
+            awayShots: updatedAwayShots,
+            homeScore: updatedHomeScore,
+            awayScore: updatedAwayScore,
+            suspenseStage: "DECIDED",
+            lastResultText: `${resultWord} MAÇ BİTTİ! Seri penaltıları kazanan: ${decidedWinnerClub.name}!`,
+            isDecided: true,
+            winnerName: decidedWinnerClub.name,
+          };
+          setDramaticPenalties(decidedState);
+
+          // Eşleşmeyi sonuçlandır
+          setBracketMatchState("FINISHED");
+          setBracketMatches((prev) =>
+            prev.map((m) => {
+              if (m.id !== state.curM.id) return m;
+              return {
+                ...m,
+                leg2: m.stage !== "FINAL" ? { homeScore: state.finalLegHome, awayScore: state.finalLegAway, played: true } : undefined,
+                extraTime: true,
+                penalties: { homePens: updatedHomeScore, awayPens: updatedAwayScore, homeShots: updatedHomeShots, awayShots: updatedAwayShots },
+                winnerId: decidedWinnerClub.id,
+                winnerName: decidedWinnerClub.name,
+              };
+            })
+          );
+          return;
+        }
+
+        // Sıradaki atıcıyı belirle
+        const nextIsHomeTurn = !state.isHomeTurn;
+        const nextTeam = nextIsHomeTurn ? state.homeClub : state.awayClub;
+        const nextRoundIndex = nextIsHomeTurn ? updatedHomeShots.length : updatedAwayShots.length;
+
+        const nextShooter = nextTeam.isUser
+          ? fbPenPool[nextRoundIndex % fbPenPool.length]
+          : getOpponentScorer(nextTeam.id, nextTeam.name);
+
+        const nextState: DramaticPenaltyState = {
+          ...state,
+          homeShots: updatedHomeShots,
+          awayShots: updatedAwayShots,
+          homeScore: updatedHomeScore,
+          awayScore: updatedAwayScore,
+          isHomeTurn: nextIsHomeTurn,
+          currentShooterName: nextShooter,
+          currentShooterTeam: nextTeam.name,
+          suspenseStage: "APPROACH",
+          lastResultText: `${resultWord} Sıradaki Atıcı: ${nextShooter} (${nextTeam.name})`,
+        };
+
+        setDramaticPenalties(nextState);
+
+        // Sıradaki penaltıya geç
+        executePenaltyStep(nextState, fbPenPool);
+      }, delaySpeed);
+    }, delaySpeed);
+  };
 
   function runExtraTimeSim(curM: BracketMatch, baseHomeGoals: number, baseAwayGoals: number, intervalMs: number) {
     let extraMin = 90;
@@ -1038,7 +1170,7 @@ export default function FBCLMasterpieceApp() {
           setBracketMatchState("FINISHED");
           finalizeBracketMatch(curM, finalHomeGoals, finalAwayGoals, outcome.winnerId, outcome.winnerName, true);
         } else {
-          runAutomatedPenaltyShootout(curM, finalHomeGoals, finalAwayGoals);
+          startDramaticPenaltyShootout(curM, finalHomeGoals, finalAwayGoals);
         }
       }
     }, Math.max(15, Math.floor(intervalMs * 0.7)));
@@ -1469,6 +1601,7 @@ export default function FBCLMasterpieceApp() {
     setSelectedPlayer(null);
     setIsDrawerOpen(false);
     setPlayerGoalCounts({});
+    setHasRolledOnce(false); // Diziliş değiştiğinde hafıza kilidini sıfırla
   };
 
   const getSlotSuitability = (player: Player, slot: FormationSlot) => {
@@ -1534,6 +1667,7 @@ export default function FBCLMasterpieceApp() {
 
   const handleRollDice = () => {
     setIsRolling(true);
+    setHasRolledOnce(true); // Sezon zarı atıldığı an hafıza modu kilitlenir
     safeAudio.tryAutoPlayFb(setFbAudioActive);
   };
 
@@ -1805,7 +1939,6 @@ export default function FBCLMasterpieceApp() {
     setHomeLiveGoals(0);
     setAwayLiveGoals(0);
     setLiveGoalScorers([]);
-    setLivePenaltyStatus(null);
     setBracketMatchState("PLAYING");
 
     const isLeg2 = bracketLeg === 2 || curM.stage === "FINAL";
@@ -1899,7 +2032,7 @@ export default function FBCLMasterpieceApp() {
           if (!outcome.isDraw) {
             finalizeBracketMatch(curM, targetHome, targetAway, outcome.winnerId, outcome.winnerName, false);
           } else {
-            runAutomatedPenaltyShootout(curM, targetHome, targetAway);
+            startDramaticPenaltyShootout(curM, targetHome, targetAway);
           }
         } else {
           setBracketMatches((prev) =>
@@ -2086,6 +2219,7 @@ export default function FBCLMasterpieceApp() {
     setMemorableMatch(null);
     setLeagueFinished(false);
     setTournamentWinner(null);
+    setHasRolledOnce(false); // Yeni turnuvada hafıza kilidini aç
     resetMatchBoard();
     setCurrentScreen("LANDING");
   };
@@ -2415,7 +2549,7 @@ export default function FBCLMasterpieceApp() {
   }
 
   // =================================================================
-  // EKRAN 2: DRAFT EKRANI
+  // EKRAN 2: DRAFT EKRANI (KİLİTLİ HAFIZA BUTONU ENTEGRE)
   // =================================================================
   return (
     <div className="min-h-[100dvh] bg-[#000028] text-white flex flex-col justify-between p-2 sm:p-4 select-none font-sans relative overflow-x-hidden">
@@ -2456,15 +2590,23 @@ export default function FBCLMasterpieceApp() {
             <span className="hidden sm:inline">Arena</span>
           </button>
 
+          {/* HAFIZA MODU BUTONU (ZAR ATILDIKTAN SONRA KİLİTLİ) */}
           <button
             type="button"
+            disabled={hasRolledOnce}
             onClick={() => setMemoryMode((m) => !m)}
             className={`p-1 sm:px-2 sm:py-1 rounded-lg text-[10px] font-black border transition-all flex items-center gap-1 ${
-              memoryMode ? "bg-purple-950 border-purple-400 text-purple-300" : "bg-slate-900 border-slate-750 text-slate-400"
+              hasRolledOnce
+                ? "opacity-45 cursor-not-allowed bg-slate-900/60 border-slate-800 text-slate-500"
+                : memoryMode
+                ? "bg-purple-950 border-purple-400 text-purple-300 shadow-[0_0_10px_rgba(192,132,252,0.4)]"
+                : "bg-slate-900 border-slate-750 text-slate-400 hover:text-white"
             }`}
+            title={hasRolledOnce ? "Zar atıldığı için hafıza modu bu tur kilitlendi" : "Hafıza Modu"}
           >
             <span>🧠</span>
             <span className="hidden sm:inline">{memoryMode ? "Açık" : "Kapalı"}</span>
+            {hasRolledOnce && <span className="text-[8px] ml-0.5">🔒</span>}
           </button>
 
           <button
@@ -2654,6 +2796,7 @@ export default function FBCLMasterpieceApp() {
             setIsDrawerOpen(false);
             setPassJokers(1);
             setPlayerGoalCounts({});
+            setHasRolledOnce(false); // Çöp kutusuna basıldığında kilidi aç
           }}
           className="text-xs font-bold text-red-400 bg-red-950/60 border border-red-900 px-3 py-2 rounded-xl"
         >
@@ -3238,6 +3381,7 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
+            {/* Yayın Kalitesinde Lüks Eleme Skorboardı */}
             {activeBracketMatch && activeBracketHome && activeBracketAway && (
               (() => {
                 const minuteText = bracketMatchState === "PENALTIES"
@@ -3251,28 +3395,21 @@ export default function FBCLMasterpieceApp() {
                   : "RÖVANŞ";
 
                 return (
-                  <>
-                    <BroadcastScoreboard
-                      homeClub={activeBracketHome}
-                      awayClub={activeBracketAway}
-                      homeGoals={homeLiveGoals}
-                      awayGoals={awayLiveGoals}
-                      scorers={liveGoalScorers}
-                      matchMinuteText={minuteText}
-                      statusBadge={activeBracketMatch.stageTitle}
-                      memoryMode={memoryMode}
-                    />
-
-                    {livePenaltyStatus && (
-                      <div className="bg-yellow-400/10 border border-yellow-400/40 p-2 rounded-xl text-center text-xs font-black text-yellow-300 mb-2">
-                        {livePenaltyStatus.text}
-                      </div>
-                    )}
-                  </>
+                  <BroadcastScoreboard
+                    homeClub={activeBracketHome}
+                    awayClub={activeBracketAway}
+                    homeGoals={homeLiveGoals}
+                    awayGoals={awayLiveGoals}
+                    scorers={liveGoalScorers}
+                    matchMinuteText={minuteText}
+                    statusBadge={activeBracketMatch.stageTitle}
+                    memoryMode={memoryMode}
+                  />
                 );
               })()
             )}
 
+            {/* Diğer Maçların Canlı Ticker Bandı */}
             {bracketMatchState === "PLAYING" && Object.keys(concurrentBracketLiveScores).length > 0 && (
               <div className="bg-[#000020] border border-cyan-900/50 p-1.5 rounded-lg mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none text-[10px] text-slate-300 shrink-0">
                 <span className="text-cyan-400 font-bold shrink-0">⚡ DİĞER MAÇLAR:</span>
@@ -3291,6 +3428,7 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
+            {/* Eşleşme Kartları */}
             <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 pr-0.5">
               {bracketMatches.map((m) => {
                 const liveOther = concurrentBracketLiveScores[m.id];
@@ -3384,6 +3522,130 @@ export default function FBCLMasterpieceApp() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* GERİLİMLİ VE SİNEMATİK PENALTI ATILAN CANLI ARENA MODALI      */}
+      {/* ============================================================= */}
+      {dramaticPenalties && dramaticPenalties.isActive && (
+        <div className="fixed inset-0 z-50 bg-[#000015]/95 backdrop-blur-xl flex flex-col items-center justify-center p-3 select-none">
+          <div className="w-full max-w-lg bg-gradient-to-b from-[#001740] via-[#000c24] to-[#000514] border-2 border-yellow-400 rounded-3xl p-4 sm:p-6 shadow-[0_0_50px_rgba(254,241,0,0.4)] flex flex-col items-center text-center relative overflow-hidden">
+            {/* Arka plan stadyum ışığı efekti */}
+            <div className="absolute -top-16 inset-x-0 h-32 bg-cyan-400/20 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-cyan-300">
+                UEFA SERİ PENALTI ATIŞLARI
+              </span>
+            </div>
+
+            {/* Skor ve Takımlar */}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 w-full my-2 bg-slate-950/80 p-3 rounded-2xl border border-cyan-500/30">
+              <div className="flex flex-col items-center min-w-0">
+                <ClubLogo club={dramaticPenalties.homeClub as any} className="w-10 h-10 sm:w-12 sm:h-12 mb-1" />
+                <span className="text-xs sm:text-sm font-black text-white truncate max-w-[120px]">
+                  {dramaticPenalties.homeClub.name}
+                </span>
+                {/* 5 Penaltı Durum Çemberleri */}
+                <div className="flex gap-1 mt-1.5">
+                  {Array.from({ length: Math.max(5, dramaticPenalties.homeShots.length) }).map((_, idx) => {
+                    const shot = dramaticPenalties.homeShots[idx];
+                    return (
+                      <span
+                        key={idx}
+                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-black border transition-all ${
+                          !shot
+                            ? "bg-slate-900 border-slate-700 text-transparent"
+                            : shot.scored
+                            ? "bg-emerald-500 border-emerald-300 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                            : "bg-red-600 border-red-400 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                        }`}
+                      >
+                        {shot ? (shot.scored ? "✓" : "✕") : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Skor Sayacı */}
+              <div className="bg-[#001035] border-2 border-yellow-400 px-4 py-2 rounded-2xl shadow-[0_0_20px_rgba(254,241,0,0.4)]">
+                <span className="text-2xl sm:text-4xl font-black text-yellow-400 tabular-nums">
+                  {dramaticPenalties.homeScore} : {dramaticPenalties.awayScore}
+                </span>
+              </div>
+
+              <div className="flex flex-col items-center min-w-0">
+                <ClubLogo club={dramaticPenalties.awayClub as any} className="w-10 h-10 sm:w-12 sm:h-12 mb-1" />
+                <span className="text-xs sm:text-sm font-black text-white truncate max-w-[120px]">
+                  {dramaticPenalties.awayClub.name}
+                </span>
+                {/* 5 Penaltı Durum Çemberleri */}
+                <div className="flex gap-1 mt-1.5">
+                  {Array.from({ length: Math.max(5, dramaticPenalties.awayShots.length) }).map((_, idx) => {
+                    const shot = dramaticPenalties.awayShots[idx];
+                    return (
+                      <span
+                        key={idx}
+                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-black border transition-all ${
+                          !shot
+                            ? "bg-slate-900 border-slate-700 text-transparent"
+                            : shot.scored
+                            ? "bg-emerald-500 border-emerald-300 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                            : "bg-red-600 border-red-400 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                        }`}
+                      >
+                        {shot ? (shot.scored ? "✓" : "✕") : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Gerilim ve Canlı Anlatım Sahnesi */}
+            <div className="w-full bg-[#00081c] border border-cyan-500/40 rounded-2xl p-4 my-2 flex flex-col items-center justify-center min-h-[110px]">
+              {!dramaticPenalties.isDecided ? (
+                <>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    TOPUN BAŞINDA
+                  </div>
+                  <div className="text-base sm:text-lg font-black text-yellow-300 flex items-center gap-1.5 animate-pulse">
+                    <span>⚽</span>
+                    <span>{dramaticPenalties.currentShooterName}</span>
+                    <span className="text-xs text-cyan-300 font-semibold">({dramaticPenalties.currentShooterTeam})</span>
+                  </div>
+                  <div className="mt-2 text-xs font-semibold text-slate-300">
+                    {dramaticPenalties.lastResultText}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <span className="text-2xl mb-1">🏆</span>
+                  <span className="text-lg font-black text-emerald-400 uppercase tracking-wide">
+                    {dramaticPenalties.winnerName} Kazandı!
+                  </span>
+                  <p className="text-xs text-slate-300 mt-1">{dramaticPenalties.lastResultText}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Penaltılar Tamamlandığında Devam Et Butonu */}
+            {dramaticPenalties.isDecided && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDramaticPenalties(null);
+                  advanceBracketRound();
+                }}
+                className="w-full bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 text-slate-950 font-black py-3 rounded-2xl text-xs sm:text-sm uppercase tracking-wider shadow-[0_0_20px_rgba(254,241,0,0.6)] active:scale-95 animate-bounce mt-2"
+              >
+                Sonucu Onayla ve Devam Et ➔
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -3508,7 +3770,7 @@ export default function FBCLMasterpieceApp() {
 }
 
 // =================================================================
-// 6. HIZLI ÇARK BİLEŞENİ
+// 7. HIZLI ÇARK BİLEŞENİ
 // =================================================================
 function FastSnappyWheelModal({
   seasons,
