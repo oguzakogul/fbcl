@@ -441,7 +441,7 @@ function BroadcastScoreboard({
 }
 
 // =================================================================
-// 5. DRAMATİK VE SİNEMATİK PENALTI MODAL ARAYÜZÜ (HAYATİ YENİLİK)
+// 5. DRAMATİK PENALTI MODAL TİPİ
 // =================================================================
 interface DramaticPenaltyState {
   isActive: boolean;
@@ -463,6 +463,11 @@ interface DramaticPenaltyState {
   finalLegAway: number;
 }
 
+interface NewsItem {
+  title: string;
+  link: string;
+}
+
 // =================================================================
 // 6. ANA UYGULAMA BİLEŞENİ
 // =================================================================
@@ -476,12 +481,12 @@ export default function FBCLMasterpieceApp() {
   // Menajer Adı
   const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
 
-  // Haber Akışı State'i
-  const [liveNews, setLiveNews] = useState<string[]>([
-    "🟡🔵 Kadıköy'de Şampiyonlar Ligi rüzgarı esiyor! Hedef Avrupa zirvesi.",
-    "⚡ UEFA'dan Fenerbahçe kadrosuna övgü dolu analiz: 'Efsaneler sahada!'",
-    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi!",
-    "⭐ Alex de Souza'dan mesaj: 'Bu arma her zaman en büyüktür.'"
+  // Tıklanabilir Canlı Haber State'i (Başlık ve Orijinal Bağlantı)
+  const [liveNews, setLiveNews] = useState<NewsItem[]>([
+    { title: "🟡🔵 Kadıköy'de Şampiyonlar Ligi rüzgarı esiyor! Hedef Avrupa zirvesi.", link: "https://news.google.com/search?q=Fenerbahce" },
+    { title: "⚡ UEFA'dan Fenerbahçe kadrosuna övgü dolu analiz: 'Efsaneler sahada!'", link: "https://news.google.com/search?q=Fenerbahce" },
+    { title: "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi!", link: "https://news.google.com/search?q=Fenerbahce" },
+    { title: "⭐ Alex de Souza'dan mesaj: 'Bu arma her zaman en büyüktür.'", link: "https://news.google.com/search?q=Fenerbahce" }
   ]);
   const [tickerIndex, setTickerIndex] = useState<number>(0);
 
@@ -534,7 +539,7 @@ export default function FBCLMasterpieceApp() {
   const [bracketMatchState, setBracketMatchState] = useState<"IDLE" | "PLAYING" | "EXTRA_TIME" | "PENALTIES" | "FINISHED">("IDLE");
   const [concurrentBracketLiveScores, setConcurrentBracketLiveScores] = useState<Record<string, { home: number; away: number }>>({});
 
-  // YENİ: Sinematik ve Gerilimli Penaltı State'i
+  // Sinematik Penaltı State'i
   const [dramaticPenalties, setDramaticPenalties] = useState<DramaticPenaltyState | null>(null);
 
   // Sezon Sonu & Turnuva Galibi
@@ -569,37 +574,52 @@ export default function FBCLMasterpieceApp() {
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
   // =================================================================
-  // ÇİFTE KORUMALI GOOGLE NEWS ÇEKİCİ (ASLA BOŞ KALMAZ)
+  // ÇİFTE KORUMALI GOOGLE NEWS ÇEKİCİ (LİNKLERLE BERABER)
   // =================================================================
   useEffect(() => {
     let isMounted = true;
 
     async function loadFenerbahceNews() {
-      // 1. Önce yerel Next.js /api/fb-news rotasını dene
+      // 1. Önce /api/fb-news rotasını dene
       try {
         const localRes = await fetch("/api/fb-news");
         if (localRes.ok) {
           const data = await localRes.json();
           if (data?.news && Array.isArray(data.news) && data.news.length > 0) {
             if (isMounted) {
-              setLiveNews(data.news.map((n: string) => `🟡🔵 ${n}`));
+              const formatted: NewsItem[] = data.news.map((item: any) => {
+                if (typeof item === "string") {
+                  return {
+                    title: `🟡🔵 ${item}`,
+                    link: `https://www.google.com/search?q=${encodeURIComponent(item)}`,
+                  };
+                }
+                return {
+                  title: `🟡🔵 ${item.title}`,
+                  link: item.link || `https://www.google.com/search?q=${encodeURIComponent(item.title)}`,
+                };
+              });
+              setLiveNews(formatted);
               return;
             }
           }
         }
       } catch {}
 
-      // 2. Yerel API rota dosyan yoksa veya Vercel'de IP kısıtı varsa doğrudan RSS2JSON köprüsüyle çek
+      // 2. Doğrudan RSS2JSON köprüsünü dene
       try {
         const targetRss = encodeURIComponent("https://news.google.com/rss/search?q=Fenerbahçe+futbol&hl=tr&gl=TR&ceid=TR:tr");
         const bridgeRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${targetRss}`);
         if (bridgeRes.ok) {
           const bridgeData = await bridgeRes.json();
           if (bridgeData?.items && bridgeData.items.length > 0) {
-            const parsed = bridgeData.items.slice(0, 10).map((it: any) => {
+            const parsed: NewsItem[] = bridgeData.items.slice(0, 10).map((it: any) => {
               let cleanTitle = it.title || "";
-              cleanTitle = cleanTitle.replace(/\s*-\s*[^-]+$/, "").trim(); // Sondaki "- Fanatik" vb. kaynak adını temizler
-              return `🟡🔵 ${cleanTitle}`;
+              cleanTitle = cleanTitle.replace(/\s*-\s*[^-]+$/, "").trim();
+              return {
+                title: `🟡🔵 ${cleanTitle}`,
+                link: it.link || it.guid || `https://www.google.com/search?q=${encodeURIComponent(cleanTitle)}`,
+              };
             });
             if (isMounted && parsed.length > 0) {
               setLiveNews(parsed);
@@ -968,9 +988,6 @@ export default function FBCLMasterpieceApp() {
     );
   }
 
-  // =================================================================
-  // NEFES KESEN SİNEMATİK PENALTI MOTORU
-  // =================================================================
   const startDramaticPenaltyShootout = (curM: BracketMatch, finalLegHome: number, finalLegAway: number) => {
     setBracketMatchState("PENALTIES");
 
@@ -1007,19 +1024,15 @@ export default function FBCLMasterpieceApp() {
     };
 
     setDramaticPenalties(initialPenState);
-
-    // Adım adım gerilimli vuruş simülatörü
     executePenaltyStep(initialPenState, fbPenPool);
   };
 
   const executePenaltyStep = (state: DramaticPenaltyState, fbPenPool: string[]) => {
     const delaySpeed = simSpeed === 100 ? 50 : Math.max(300, Math.floor(1300 / simSpeed));
 
-    // Faz 1: Gergin Bekleyiş
     penaltyStepTimeoutRef.current = setTimeout(() => {
       setDramaticPenalties((prev) => (prev ? { ...prev, suspenseStage: "KICKING", lastResultText: `${prev.currentShooterName} derin bir nefes aldı ve vuruşunu yaptı...` } : null));
 
-      // Faz 2: Şutun Sonucu
       penaltyStepTimeoutRef.current = setTimeout(() => {
         const isUserKick = state.isHomeTurn ? state.homeClub.isUser : state.awayClub.isUser;
         const kickAccuracy = isUserKick ? 0.78 : 0.74;
@@ -1040,7 +1053,6 @@ export default function FBCLMasterpieceApp() {
 
         const resultWord = isGoal ? "GOOOL! Ağları havalandırdı!" : "KAÇTI! Kaleci köşeyi bildi!";
 
-        // Matematiksel Galibiyet Kontrolü
         const roundsDone = Math.max(updatedHomeShots.length, updatedAwayShots.length);
         const homeRemaining = Math.max(0, 5 - updatedHomeShots.length);
         const awayRemaining = Math.max(0, 5 - updatedAwayShots.length);
@@ -1048,7 +1060,6 @@ export default function FBCLMasterpieceApp() {
         let winnerDecided = false;
         let decidedWinnerClub: BracketTeam | null = null;
 
-        // İlk 5 tur içi erken bitiş
         if (updatedHomeShots.length <= 5 && updatedAwayShots.length <= 5) {
           if (updatedHomeScore > updatedAwayScore + awayRemaining) {
             winnerDecided = true;
@@ -1059,7 +1070,6 @@ export default function FBCLMasterpieceApp() {
           }
         }
 
-        // 5 tur eşit bittikten sonra seri penaltılar
         if (!winnerDecided && updatedHomeShots.length >= 5 && updatedAwayShots.length === updatedHomeShots.length) {
           if (updatedHomeScore !== updatedAwayScore) {
             winnerDecided = true;
@@ -1067,7 +1077,6 @@ export default function FBCLMasterpieceApp() {
           }
         }
 
-        // Güvenlik tavanı: 10'ar penaltıdan sonra rastgelelik
         if (!winnerDecided && roundsDone >= 10 && updatedHomeShots.length === updatedAwayShots.length) {
           winnerDecided = true;
           decidedWinnerClub = state.homeClub;
@@ -1091,7 +1100,6 @@ export default function FBCLMasterpieceApp() {
           };
           setDramaticPenalties(decidedState);
 
-          // Eşleşmeyi sonuçlandır
           setBracketMatchState("FINISHED");
           setBracketMatches((prev) =>
             prev.map((m) => {
@@ -1109,7 +1117,6 @@ export default function FBCLMasterpieceApp() {
           return;
         }
 
-        // Sıradaki atıcıyı belirle
         const nextIsHomeTurn = !state.isHomeTurn;
         const nextTeam = nextIsHomeTurn ? state.homeClub : state.awayClub;
         const nextRoundIndex = nextIsHomeTurn ? updatedHomeShots.length : updatedAwayShots.length;
@@ -1132,8 +1139,6 @@ export default function FBCLMasterpieceApp() {
         };
 
         setDramaticPenalties(nextState);
-
-        // Sıradaki penaltıya geç
         executePenaltyStep(nextState, fbPenPool);
       }, delaySpeed);
     }, delaySpeed);
@@ -1601,7 +1606,7 @@ export default function FBCLMasterpieceApp() {
     setSelectedPlayer(null);
     setIsDrawerOpen(false);
     setPlayerGoalCounts({});
-    setHasRolledOnce(false); // Diziliş değiştiğinde hafıza kilidini sıfırla
+    setHasRolledOnce(false);
   };
 
   const getSlotSuitability = (player: Player, slot: FormationSlot) => {
@@ -1667,7 +1672,7 @@ export default function FBCLMasterpieceApp() {
 
   const handleRollDice = () => {
     setIsRolling(true);
-    setHasRolledOnce(true); // Sezon zarı atıldığı an hafıza modu kilitlenir
+    setHasRolledOnce(true);
     safeAudio.tryAutoPlayFb(setFbAudioActive);
   };
 
@@ -2219,7 +2224,7 @@ export default function FBCLMasterpieceApp() {
     setMemorableMatch(null);
     setLeagueFinished(false);
     setTournamentWinner(null);
-    setHasRolledOnce(false); // Yeni turnuvada hafıza kilidini aç
+    setHasRolledOnce(false);
     resetMatchBoard();
     setCurrentScreen("LANDING");
   };
@@ -2240,19 +2245,27 @@ export default function FBCLMasterpieceApp() {
   }, [globalLeaderboard, leaderboardTab]);
 
   // =================================================================
-  // EKRAN 1: KARŞILAMA EKRANI
+  // EKRAN 1: KARŞILAMA EKRANI (TIKLANABİLİR HABER BANDI)
   // =================================================================
   if (currentScreen === "LANDING") {
     return (
       <div className="h-[100dvh] max-h-[100dvh] bg-[#00001f] text-white flex flex-col justify-between p-3 sm:p-6 select-none font-sans relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,240,255,0.12)_0%,transparent_70%)] pointer-events-none" />
 
+        {/* TIKLANABİLİR HABER BANDI */}
         <div className="w-full max-w-4xl mx-auto z-20 shrink-0">
           <div className="bg-[#000030]/90 border border-cyan-500/40 rounded-xl px-3 py-1 flex items-center gap-2 overflow-hidden shadow-lg backdrop-blur-md">
             <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded animate-pulse shrink-0">HABERLER</span>
-            <p className="text-[11px] sm:text-xs text-cyan-200 font-bold truncate">
-              {liveNews[tickerIndex] || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}
-            </p>
+            <a
+              href={liveNews[tickerIndex]?.link || "https://news.google.com/search?q=Fenerbahce"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] sm:text-xs text-cyan-200 hover:text-yellow-300 font-bold truncate transition-colors flex items-center gap-1.5 flex-1 min-w-0"
+              title="Haberi oku (Yeni sekmede açılır)"
+            >
+              <span className="truncate">{liveNews[tickerIndex]?.title || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}</span>
+              <span className="text-[9px] opacity-70 shrink-0">↗</span>
+            </a>
           </div>
         </div>
 
@@ -2549,16 +2562,24 @@ export default function FBCLMasterpieceApp() {
   }
 
   // =================================================================
-  // EKRAN 2: DRAFT EKRANI (KİLİTLİ HAFIZA BUTONU ENTEGRE)
+  // EKRAN 2: DRAFT EKRANI (TIKLANABİLİR HABER BANDI)
   // =================================================================
   return (
     <div className="min-h-[100dvh] bg-[#000028] text-white flex flex-col justify-between p-2 sm:p-4 select-none font-sans relative overflow-x-hidden">
+      {/* TIKLANABİLİR HABER BANDI */}
       <div className="w-full max-w-2xl mx-auto shrink-0 mb-1">
         <div className="bg-[#000030]/80 border border-cyan-500/30 rounded-lg px-2 py-0.5 flex items-center gap-1.5 overflow-hidden">
           <span className="bg-red-600 text-white text-[7.5px] font-black px-1 rounded animate-pulse shrink-0">HABER</span>
-          <p className="text-[10px] text-cyan-200 font-bold truncate">
-            {liveNews[tickerIndex] || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}
-          </p>
+          <a
+            href={liveNews[tickerIndex]?.link || "https://news.google.com/search?q=Fenerbahce"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-cyan-200 hover:text-yellow-300 font-bold truncate transition-colors flex items-center gap-1.5 flex-1 min-w-0"
+            title="Haberi oku (Yeni sekmede açılır)"
+          >
+            <span className="truncate">{liveNews[tickerIndex]?.title || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}</span>
+            <span className="text-[8.5px] opacity-70 shrink-0">↗</span>
+          </a>
         </div>
       </div>
 
@@ -2796,7 +2817,7 @@ export default function FBCLMasterpieceApp() {
             setIsDrawerOpen(false);
             setPassJokers(1);
             setPlayerGoalCounts({});
-            setHasRolledOnce(false); // Çöp kutusuna basıldığında kilidi aç
+            setHasRolledOnce(false);
           }}
           className="text-xs font-bold text-red-400 bg-red-950/60 border border-red-900 px-3 py-2 rounded-xl"
         >
@@ -3532,7 +3553,6 @@ export default function FBCLMasterpieceApp() {
       {dramaticPenalties && dramaticPenalties.isActive && (
         <div className="fixed inset-0 z-50 bg-[#000015]/95 backdrop-blur-xl flex flex-col items-center justify-center p-3 select-none">
           <div className="w-full max-w-lg bg-gradient-to-b from-[#001740] via-[#000c24] to-[#000514] border-2 border-yellow-400 rounded-3xl p-4 sm:p-6 shadow-[0_0_50px_rgba(254,241,0,0.4)] flex flex-col items-center text-center relative overflow-hidden">
-            {/* Arka plan stadyum ışığı efekti */}
             <div className="absolute -top-16 inset-x-0 h-32 bg-cyan-400/20 rounded-full blur-3xl pointer-events-none" />
 
             <div className="flex items-center gap-1.5 mb-2">
@@ -3549,7 +3569,6 @@ export default function FBCLMasterpieceApp() {
                 <span className="text-xs sm:text-sm font-black text-white truncate max-w-[120px]">
                   {dramaticPenalties.homeClub.name}
                 </span>
-                {/* 5 Penaltı Durum Çemberleri */}
                 <div className="flex gap-1 mt-1.5">
                   {Array.from({ length: Math.max(5, dramaticPenalties.homeShots.length) }).map((_, idx) => {
                     const shot = dramaticPenalties.homeShots[idx];
@@ -3583,7 +3602,6 @@ export default function FBCLMasterpieceApp() {
                 <span className="text-xs sm:text-sm font-black text-white truncate max-w-[120px]">
                   {dramaticPenalties.awayClub.name}
                 </span>
-                {/* 5 Penaltı Durum Çemberleri */}
                 <div className="flex gap-1 mt-1.5">
                   {Array.from({ length: Math.max(5, dramaticPenalties.awayShots.length) }).map((_, idx) => {
                     const shot = dramaticPenalties.awayShots[idx];
