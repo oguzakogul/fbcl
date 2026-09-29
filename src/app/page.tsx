@@ -189,7 +189,7 @@ export function RetroFenerbahceKit({
 }
 
 // =================================================================
-// 3. KALICI SES MOTORU (iOS/Safari Unlock Destekli)
+// 3. KALICI SES MOTORU
 // =================================================================
 class SafeAudioEngine {
   private ucl: HTMLAudioElement | null = null;
@@ -355,11 +355,9 @@ function BroadcastScoreboard({
 
   return (
     <div className="w-full bg-gradient-to-b from-[#020b24] via-[#05143a] to-[#01091a] border border-cyan-500/40 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.7),0_0_20px_rgba(0,240,255,0.15)] p-3 sm:p-4 mb-3 relative overflow-hidden backdrop-blur-xl">
-      {/* İnce Arka Plan UEFA Efekti */}
       <div className="absolute -top-12 -left-12 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Üst Yayın Bandı: Canlı Göstergesi ve Durum */}
       <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2 mb-2.5">
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
@@ -370,9 +368,8 @@ function BroadcastScoreboard({
         </div>
       </div>
 
-      {/* Ana Skor Grid Yapısı (Asla Taşmayan 3 Bölmeli Düzen) */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4">
-        {/* Ev Sahibi Takım */}
+        {/* Ev Sahibi */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <ClubLogo club={homeClub as any} className="w-9 h-9 sm:w-12 sm:h-12 shrink-0 drop-shadow-[0_0_12px_rgba(255,255,255,0.2)]" />
           <div className="min-w-0">
@@ -385,7 +382,7 @@ function BroadcastScoreboard({
           </div>
         </div>
 
-        {/* Skor ve Süre Sayacı */}
+        {/* Skor Paneli */}
         <div className="flex flex-col items-center justify-center shrink-0 px-2 sm:px-4">
           <div className="bg-[#000d2b] border-2 border-cyan-400/70 rounded-xl px-3 sm:px-5 py-1.5 shadow-[0_0_15px_rgba(0,240,255,0.35)] flex items-center gap-2 sm:gap-3">
             <span className="text-xl sm:text-3xl font-black text-white tabular-nums tracking-tight">{homeGoals}</span>
@@ -397,7 +394,7 @@ function BroadcastScoreboard({
           </span>
         </div>
 
-        {/* Deplasman Takım */}
+        {/* Deplasman */}
         <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0 text-right">
           <div className="min-w-0">
             <span className="text-xs sm:text-base font-black text-white block leading-tight tracking-wide truncate">
@@ -411,9 +408,8 @@ function BroadcastScoreboard({
         </div>
       </div>
 
-      {/* Golcüler Paneli (Her İki Taraf İçin Ayrı, Ferah ve Wrap Edilen Liste) */}
+      {/* Golcüler */}
       <div className="mt-3 pt-2.5 border-t border-cyan-500/20 grid grid-cols-2 gap-2 text-[10px] sm:text-[11px] min-h-[30px]">
-        {/* Ev Sahibi Golleri */}
         <div className="flex flex-col gap-1 pr-1 border-r border-cyan-500/10">
           {homeScorers.length > 0 ? (
             homeScorers.map((s, idx) => (
@@ -428,7 +424,6 @@ function BroadcastScoreboard({
           )}
         </div>
 
-        {/* Deplasman Golleri */}
         <div className="flex flex-col gap-1 items-end pl-1">
           {awayScorers.length > 0 ? (
             awayScorers.map((s, idx) => (
@@ -459,6 +454,17 @@ export default function FBCLMasterpieceApp() {
   // Menajer Adı
   const [managerName, setManagerName] = useState<string>("Kadıköy Fatihi");
 
+  // Canlı Haberler State'i
+  const [liveNews, setLiveNews] = useState<string[]>([
+    "🟡🔵 Fenerbahçe'de Şampiyonlar Ligi kampı için geri sayım başladı! Kadıköy'de heyecan dorukta.",
+    "⚡ UEFA'dan Fenerbahçe'nin yeni kadro yapılanmasına büyük övgü: 'Avrupa'nın en dinamik kadrosu!'",
+    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi: 'Hedef bu kez kulübe kupayı getirmek.'",
+    "⭐ Alex de Souza'dan açıklama: 'Kadıköy gecelerindeki bu kadro kulüp tarihine geçecek güçte.'",
+    "🧤 Kaleci eldivenlerinde muazzam form: Devler Ligi'nde geçit vermeyen savunma hazır!",
+    "🚀 Haftalık Kadıköy Hedefleri güncellendi: Maçları kazan, rozetleri topla ve kürsüye çık!"
+  ]);
+  const [tickerIndex, setTickerIndex] = useState<number>(0);
+
   // Görevler & Zirve Skorlar
   const [weeklyQuests, setWeeklyQuests] = useState<QuestItem[]>([]);
   const [bestQuestValues, setBestQuestValues] = useState<Record<string, number>>({});
@@ -475,7 +481,7 @@ export default function FBCLMasterpieceApp() {
   const [cardFilter, setCardFilter] = useState<"ALL" | "DEF" | "MID" | "AMC" | "ATT" | "GK">("ALL");
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
 
-  // İstatistikler (Turnuva İçi)
+  // İstatistikler
   const [playerGoalCounts, setPlayerGoalCounts] = useState<Record<string, number>>({});
   const [memorableMatch, setMemorableMatch] = useState<{ opponent: string; score: string; stage: string } | null>(null);
 
@@ -551,25 +557,29 @@ export default function FBCLMasterpieceApp() {
   const [duelResult, setDuelResult] = useState<{ userScore: number; oppScore: number; userScorers: string[]; oppScorers: string[]; oppManager: string } | null>(null);
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
-  // Haber Bandı
-  const [tickerIndex, setTickerIndex] = useState<number>(0);
-  const tickerEvents = useMemo(() => [
-    "🟡🔵 Fenerbahçe'de Şampiyonlar Ligi kampı için geri sayım başladı! Kadıköy'de heyecan dorukta.",
-    "⚡ UEFA'dan Fenerbahçe'nin yeni kadro yapılanmasına büyük övgü: 'Avrupa'nın en dinamik kadrosu!'",
-    "🏆 Sarı-Lacivertli taraftarlar Münih finaline kilitlendi: 'Hedef bu kez kulübe kupayı getirmek.'",
-    "⭐ Alex de Souza'dan açıklama: 'Kadıköy gecelerindeki bu kadro kulüp tarihine geçecek güçte.'",
-    "🧤 Kaleci eldivenlerinde muazzam form: Devler Ligi'nde geçit vermeyen savunma hazır!",
-    "🚀 Haftalık Kadıköy Hedefleri güncellendi: Maçları kazan, rozetleri topla ve kürsüye çık!"
-  ], []);
-
+  // CANLI FENERBAHÇE HABERLERİNİ /api/fb-news RÖLESİNDEN ÇEK
   useEffect(() => {
+    fetch("/api/fb-news")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.news && data.news.length > 0) {
+          const formatted = data.news.map((item: string) => `🟡🔵 ${item}`);
+          setLiveNews(formatted);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Haber kaydırma sayacı
+  useEffect(() => {
+    if (liveNews.length === 0) return;
     const tickerInterval = setInterval(() => {
-      setTickerIndex((prev) => (prev + 1) % tickerEvents.length);
+      setTickerIndex((prev) => (prev + 1) % liveNews.length);
     }, 5000);
     return () => clearInterval(tickerInterval);
-  }, [tickerEvents.length]);
+  }, [liveNews.length]);
 
-  // Mobil ses kilidi çözümü
+  // Safari / iOS ses kilidi açıcı
   useEffect(() => {
     const handleUnlockInteraction = () => {
       safeAudio.unlockAudio();
@@ -2106,7 +2116,9 @@ export default function FBCLMasterpieceApp() {
         <div className="w-full max-w-4xl mx-auto z-20 shrink-0">
           <div className="bg-[#000030]/90 border border-cyan-500/40 rounded-xl px-3 py-1 flex items-center gap-2 overflow-hidden shadow-lg backdrop-blur-md">
             <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded animate-pulse shrink-0">HABERLER</span>
-            <p className="text-[11px] sm:text-xs text-cyan-200 font-bold truncate">{tickerEvents[tickerIndex]}</p>
+            <p className="text-[11px] sm:text-xs text-cyan-200 font-bold truncate">
+              {liveNews[tickerIndex] || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}
+            </p>
           </div>
         </div>
 
@@ -2282,7 +2294,7 @@ export default function FBCLMasterpieceApp() {
           </div>
         )}
 
-        {/* MODAL: KARİYER & ŞAMPİYONLAR MÜZESİ */}
+        {/* MODAL: KARİYER */}
         {isStatsModalOpen && (
           <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3">
             <div className="w-full max-w-xl bg-[#00003c] border-2 border-yellow-400/70 rounded-2xl p-4 shadow-2xl flex flex-col max-h-[85vh] overflow-y-auto text-left">
@@ -2410,7 +2422,9 @@ export default function FBCLMasterpieceApp() {
       <div className="w-full max-w-2xl mx-auto shrink-0 mb-1">
         <div className="bg-[#000030]/80 border border-cyan-500/30 rounded-lg px-2 py-0.5 flex items-center gap-1.5 overflow-hidden">
           <span className="bg-red-600 text-white text-[7.5px] font-black px-1 rounded animate-pulse shrink-0">HABER</span>
-          <p className="text-[10px] text-cyan-200 font-bold truncate">{tickerEvents[tickerIndex]}</p>
+          <p className="text-[10px] text-cyan-200 font-bold truncate">
+            {liveNews[tickerIndex] || "🟡🔵 Fenerbahçe haberleri yükleniyor..."}
+          </p>
         </div>
       </div>
 
@@ -2489,7 +2503,7 @@ export default function FBCLMasterpieceApp() {
         </div>
       </header>
 
-      {/* TAKTİK DÜZEN SEÇİCİ */}
+      {/* TAKTİK SEÇİCİ */}
       <div className="w-full max-w-2xl mx-auto bg-[#030922] border border-cyan-900/60 rounded-xl p-2 sm:p-2.5 mb-2 shadow-xl shrink-0">
         <div className="flex justify-between items-center mb-1.5 pb-1 border-b border-blue-950">
           <span className="text-[10px] sm:text-[11px] font-black tracking-wider text-cyan-400 uppercase flex items-center gap-1.5">
@@ -2806,7 +2820,7 @@ export default function FBCLMasterpieceApp() {
         />
       )}
 
-      {/* MODAL: KADIKÖY ARENA */}
+      {/* MODAL: ARENA */}
       {isDuelModalOpen && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex items-center justify-center p-3">
           <div className="w-full max-w-md bg-[#00003c] border-2 border-red-500/70 rounded-2xl p-4 shadow-2xl flex flex-col text-left">
@@ -2890,7 +2904,7 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 3: KURA ÇEKİMİ MODALI (SES BUTONU ENTEGRE)               */}
+      {/* EKRAN 3: KURA ÇEKİMİ                                          */}
       {/* ============================================================= */}
       {currentScreen === "DRAW" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
@@ -2902,7 +2916,6 @@ export default function FBCLMasterpieceApp() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Marş Manuel Kontrolü */}
                 <button
                   type="button"
                   onClick={() => safeAudio.toggleUcl(setUclAudioActive)}
@@ -2979,12 +2992,11 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 4: İSVİÇRE LİGİ VE CANLI MAÇ (YAYIN KALİTESİNDE SKORBOARD) */}
+      {/* EKRAN 4: İSVİÇRE LİGİ VE CANLI MAÇ                            */}
       {/* ============================================================= */}
       {currentScreen === "LEAGUE" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
           <div className="w-full max-w-4xl bg-[#00003c] border-2 border-cyan-400/50 rounded-2xl p-3 sm:p-5 shadow-2xl flex flex-col max-h-[92dvh]">
-            {/* Header: Başlık + Hız + Ses Butonu + Kapat */}
             <div className="flex justify-between items-center border-b border-cyan-500/30 pb-2 mb-2">
               <div className="flex items-center gap-2">
                 <OfficialUCLLogo className="w-5 h-5" />
@@ -2997,7 +3009,6 @@ export default function FBCLMasterpieceApp() {
               </div>
 
               <div className="flex items-center gap-1.5 sm:gap-2">
-                {/* Marş Manuel Kontrolü */}
                 <button
                   type="button"
                   onClick={() => safeAudio.toggleUcl(setUclAudioActive)}
@@ -3036,7 +3047,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
-            {/* Yayın Kalitesinde Lüks Skorboard */}
             {!leagueFinished && fixtures[currentFixtureIndex] && (
               (() => {
                 const fix = fixtures[currentFixtureIndex];
@@ -3192,7 +3202,7 @@ export default function FBCLMasterpieceApp() {
       )}
 
       {/* ============================================================= */}
-      {/* EKRAN 5: ELEME TURLARI (SES KONTROLLÜ & LÜKS YAYIN SKORBOARDI) */}
+      {/* EKRAN 5: ELEME TURLARI                                        */}
       {/* ============================================================= */}
       {currentScreen === "BRACKET" && (
         <div className="fixed inset-0 z-50 bg-[#000028]/95 backdrop-blur-md flex flex-col items-center justify-center p-3">
@@ -3206,7 +3216,6 @@ export default function FBCLMasterpieceApp() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Marş Manuel Kontrolü */}
                 <button
                   type="button"
                   onClick={() => safeAudio.toggleUcl(setUclAudioActive)}
@@ -3229,7 +3238,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             </div>
 
-            {/* Yayın Kalitesinde Lüks Eleme Skorboardı */}
             {activeBracketMatch && activeBracketHome && activeBracketAway && (
               (() => {
                 const minuteText = bracketMatchState === "PENALTIES"
@@ -3265,7 +3273,6 @@ export default function FBCLMasterpieceApp() {
               })()
             )}
 
-            {/* Diğer Maçların Canlı Ticker Bandı */}
             {bracketMatchState === "PLAYING" && Object.keys(concurrentBracketLiveScores).length > 0 && (
               <div className="bg-[#000020] border border-cyan-900/50 p-1.5 rounded-lg mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none text-[10px] text-slate-300 shrink-0">
                 <span className="text-cyan-400 font-bold shrink-0">⚡ DİĞER MAÇLAR:</span>
@@ -3284,7 +3291,6 @@ export default function FBCLMasterpieceApp() {
               </div>
             )}
 
-            {/* Eşleşme Kartları */}
             <div className="flex-1 overflow-y-auto grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2 pr-0.5">
               {bracketMatches.map((m) => {
                 const liveOther = concurrentBracketLiveScores[m.id];
