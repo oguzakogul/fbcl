@@ -283,6 +283,7 @@ class SafeAudioEngine {
   public stopAll(cbUcl?: (p: boolean) => void, cbFb?: (p: boolean) => void) {
     if (this.ucl) {
       this.ucl.pause();
+      this.ucl.currentTime = 0;
       this.uclPlaying = false;
       if (cbUcl) cbUcl(false);
     }
@@ -474,7 +475,7 @@ interface NewsItem {
 export default function FBCLMasterpieceApp() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>("LANDING");
   const [memoryMode, setMemoryMode] = useState<boolean>(false);
-  const [hasRolledOnce, setHasRolledOnce] = useState<boolean>(false); // Sezon zarı atıldı mı kilidi
+  const [hasRolledOnce, setHasRolledOnce] = useState<boolean>(false);
   const [uclAudioActive, setUclAudioActive] = useState<boolean>(false);
   const [fbAudioActive, setFbAudioActive] = useState<boolean>(false);
 
@@ -574,13 +575,12 @@ export default function FBCLMasterpieceApp() {
   const [copiedCodeNotice, setCopiedCodeNotice] = useState<boolean>(false);
 
   // =================================================================
-  // ÇİFTE KORUMALI GOOGLE NEWS ÇEKİCİ (LİNKLERLE BERABER)
+  // ÇİFTE KORUMALI GOOGLE NEWS ÇEKİCİ
   // =================================================================
   useEffect(() => {
     let isMounted = true;
 
     async function loadFenerbahceNews() {
-      // 1. Önce /api/fb-news rotasını dene
       try {
         const localRes = await fetch("/api/fb-news");
         if (localRes.ok) {
@@ -606,7 +606,6 @@ export default function FBCLMasterpieceApp() {
         }
       } catch {}
 
-      // 2. Doğrudan RSS2JSON köprüsünü dene
       try {
         const targetRss = encodeURIComponent("https://news.google.com/rss/search?q=Fenerbahçe+futbol&hl=tr&gl=TR&ceid=TR:tr");
         const bridgeRes = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${targetRss}`);
@@ -821,10 +820,26 @@ export default function FBCLMasterpieceApp() {
     return filtered.length > 0 ? filtered : EXTENDED_SEASONS_DATA;
   }, [activeFormation.slots, lineup, draftedNames]);
 
-  function calculateMatchGoals(homeRating: number, awayRating: number, homeMult = 1.0, awayMult = 1.0) {
-    const ovrDiff = homeRating - awayRating;
-    const baseHomeXg = Math.max(0.35, 1.35 + ovrDiff * 0.12 + 0.3);
-    const baseAwayXg = Math.max(0.35, 1.35 - ovrDiff * 0.12 - 0.3);
+  // =================================================================
+  // YENİ VE DENGELİ MAÇ GOL MOTORU (KADIKÖY BASKISI + SÜRPRİZ DİRENCİ)
+  // =================================================================
+  function calculateMatchGoals(
+    homeRating: number,
+    awayRating: number,
+    homeMult = 1.0,
+    awayMult = 1.0,
+    isFbMatch = false,
+    isFbHome = false
+  ) {
+    // Kadıköy'de oynanıyorsa ev sahibine +3.5 OVR değerinde tarihi psikolojik baskı bonusu
+    const effectiveHome = isFbMatch && isFbHome ? homeRating + 3.5 : homeRating;
+    const ovrDiff = effectiveHome - awayRating;
+
+    // Sürpriz faktörü: Maç başına küçük bir kaos katsayısı ekleyerek tek taraflı baskıyı kırıyoruz
+    const upsetRoll = (Math.random() - 0.5) * 0.4;
+
+    const baseHomeXg = Math.max(0.4, 1.35 + ovrDiff * 0.10 + 0.25 + upsetRoll);
+    const baseAwayXg = Math.max(0.3, 1.35 - ovrDiff * 0.10 - 0.25 - upsetRoll);
 
     const finalHomeXg = baseHomeXg * homeMult;
     const finalAwayXg = baseAwayXg * awayMult;
@@ -833,11 +848,11 @@ export default function FBCLMasterpieceApp() {
       let goals = 0;
       let prob = xg;
       while (prob > 0.8) {
-        if (Math.random() < 0.75) goals++;
+        if (Math.random() < 0.72) goals++;
         prob -= 0.8;
       }
       if (Math.random() < prob) goals++;
-      return Math.min(5, goals);
+      return Math.min(6, goals);
     };
 
     return {
@@ -1565,7 +1580,7 @@ export default function FBCLMasterpieceApp() {
         }
       }
 
-      const res = calculateMatchGoals(rawTeamOvr || 82, oppData.teamOvr, 1.05, 0.95);
+      const res = calculateMatchGoals(rawTeamOvr || 82, oppData.teamOvr, 1.05, 0.95, true, true);
       const activeFb = Object.values(lineup).filter(Boolean) as DraftedSlotData[];
 
       const uScorers: string[] = [];
@@ -1785,8 +1800,8 @@ export default function FBCLMasterpieceApp() {
     const matchday = curFix.matchday;
 
     const fbRes = isFbHome
-      ? calculateMatchGoals(rawTeamOvr, curFix.opponent.rating, activeFormation.modifiers.attackXgMult, activeFormation.modifiers.defenseXgMult)
-      : calculateMatchGoals(curFix.opponent.rating, rawTeamOvr, activeFormation.modifiers.defenseXgMult, activeFormation.modifiers.attackXgMult);
+      ? calculateMatchGoals(rawTeamOvr, curFix.opponent.rating, activeFormation.modifiers.attackXgMult, activeFormation.modifiers.defenseXgMult, true, true)
+      : calculateMatchGoals(curFix.opponent.rating, rawTeamOvr, activeFormation.modifiers.defenseXgMult, activeFormation.modifiers.attackXgMult, true, false);
 
     const fbGoals = isFbHome ? fbRes.homeGoals : fbRes.awayGoals;
     const oppGoals = isFbHome ? fbRes.awayGoals : fbRes.homeGoals;
@@ -1950,7 +1965,19 @@ export default function FBCLMasterpieceApp() {
     const homeTeam = isLeg2 ? curM.teamAway : curM.teamHome;
     const awayTeam = isLeg2 ? curM.teamHome : curM.teamAway;
 
-    const res = calculateMatchGoals(homeTeam.rating, awayTeam.rating);
+    const isHomeFb = homeTeam.isUser;
+    const isAwayFb = awayTeam.isUser;
+    const isFbMatch = isHomeFb || isAwayFb;
+    const isFbHome = isHomeFb;
+
+    const res = calculateMatchGoals(
+      homeTeam.rating,
+      awayTeam.rating,
+      isHomeFb ? activeFormation.modifiers.attackXgMult : 1.0,
+      isAwayFb ? activeFormation.modifiers.attackXgMult : 1.0,
+      isFbMatch,
+      isFbHome
+    );
     const targetHome = res.homeGoals;
     const targetAway = res.awayGoals;
 
@@ -2179,10 +2206,13 @@ export default function FBCLMasterpieceApp() {
   const activeBracketAway =
     bracketLeg === 2 && activeBracketMatch?.stage !== "FINAL" ? activeBracketMatch?.teamHome : activeBracketMatch?.teamAway;
 
+  // =================================================================
+  // YENİ DİNAMİK TURNUVA ŞAMPİYONU MOTORU (REAL MADRID TEKELİNE SON)
+  // =================================================================
   const simulateRestOfTournament = (matches: BracketMatch[]) => {
     const remainingTeams: { name: string; rating: number }[] = [];
     matches.forEach((m) => {
-      if (m.winnerName) {
+      if (m.winnerName && m.winnerId !== "fb") {
         const isHomeWinner = m.winnerId === m.teamHome.id;
         remainingTeams.push({
           name: isHomeWinner ? m.teamHome.name : m.teamAway.name,
@@ -2192,10 +2222,17 @@ export default function FBCLMasterpieceApp() {
     });
 
     if (remainingTeams.length > 0) {
-      remainingTeams.sort((a, b) => b.rating - a.rating);
-      setTournamentWinner(remainingTeams[0].name);
+      // Sürpriz ve form faktörü eklenerek dinamik turnuva simülasyonu
+      const simulatedScores = remainingTeams.map((team) => ({
+        name: team.name,
+        tournamentPerformance: team.rating + (Math.random() * 14 - 5),
+      }));
+
+      simulatedScores.sort((a, b) => b.tournamentPerformance - a.tournamentPerformance);
+      setTournamentWinner(simulatedScores[0].name);
     } else {
-      setTournamentWinner("Real Madrid");
+      const fallbackWinners = ["Real Madrid", "Manchester City", "Bayern München", "Arsenal", "Inter", "Paris Saint-Germain"];
+      setTournamentWinner(fallbackWinners[Math.floor(Math.random() * fallbackWinners.length)]);
     }
   };
 
